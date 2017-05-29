@@ -1,0 +1,855 @@
+program move
+  implicit none
+
+
+  integer :: maxno,protno,seed,natoms,maxsize,maxtime
+  real :: i,j,k,gridsize,random,deltax1,deltax2,dx,dy,dz,msd,disp
+  integer :: l,m,hold,z1,z2,z3,z4,z5,z6,control
+  real :: deltay1,deltay2,deltaz1,deltaz2,dxtot,dytot,dztot
+  integer :: nprotein,split,section,time
+  integer :: maxlength,g,xl,yl,zl,t,r,N
+  real, external :: ran2
+  logical :: rightangle,endchain,run,pivotx,pivoty,pivotz
+  real :: totdisp,totchainlength,avechainlength,probs,comx,comy,comz
+  real :: actualchainlength,totvar,deviate,totdeviate,varian,separation,lengthvar
+  real,dimension(:),allocatable :: chainlength,variance
+!real :: testlength,testtotlength
+ 
+  type protein
+     real :: x,y,z
+     integer :: location
+  end type protein
+  type(protein),dimension(:,:,:),allocatable :: protcoords
+  type(protein),dimension(:,:),allocatable :: com
+ 
+  open(17, file = 'setup2.txt', action = 'read')
+  open(23, file = 'initialtake2.xyz', action = 'read')
+  open(67, file = 'move.xyz', action = 'write')
+  open(29, file = 'rms.dat', action = 'write')
+  open(31, file = 'chainlength.dat', action = 'write')
+  open(51, file = 'bonds.dat', action = 'write')
+   open(91, file = 'avechainlength.dat', action = 'write')
+ 
+ 
+ 
+  call initial
+  N = maxlength
+  allocate(protcoords(maxtime+1,nprotein,maxlength))
+  allocate(com(maxtime+1,nprotein))
+  allocate(chainlength(nprotein))
+  allocate(variance(nprotein))
+  totdisp = 0.0
+  call foundation
+  !call com
+  !call dataout
+  totvar = 0.0
+  actualchainlength = 0.0
+  do time = 1,maxtime
+
+     call dataout
+     call bonding
+     !if (time == 350) then
+        call length
+        !end if
+          call comfind
+
+     call positioning
+
+               call rms
+
+     write(6,*) 'step =',time
+  end do
+  !call error
+  write(6,*) 'average chain length squared is;' ,(actualchainlength/maxtime)**2, actualchainlength/maxtime
+  write(6,*) 2*log(actualchainlength/maxtime)/log(real(maxlength))
+  write(6,*) 'the error is', 2*(SQRT(totvar)/maxtime)/(actualchainlength/maxtime)
+  !write(6,*) (testtotlength/maxtime)**2,testtotlength/maxtime
+contains
+ 
+  subroutine initial
+    character(len = 10) :: BIN
+    read(17,*) BIN
+    read(17,*) seed
+    read(17,*) BIN
+    read(17,*) maxlength
+    read(17,*) BIN
+    read(17,*) nprotein
+    !write(19,*) nprotein*maxlength
+    read(17,*) BIN
+    read(17,*) gridsize
+    natoms = gridsize**3
+    read(17,*) BIN
+    read(17,*) maxtime
+    read(17,*) BIN
+    read(17,*) split
+    !write(19,*) ' '
+  end subroutine initial
+ 
+  subroutine foundation
+   
+    character(len = 10) :: BIN
+    read(23,*) BIN
+    write(6,*) maxlength
+    do m = 1,nprotein
+       do l = 1,maxlength
+          read(23,*) BIN, protcoords(1,m,l)%x, protcoords(1,m,l)%y, protcoords(1,m,l)%z
+       end do
+    end do
+   
+  end subroutine foundation
+ 
+ 
+ 
+ 
+  subroutine positioning
+   
+    integer :: gate,xbk,ybk,zbk,protpass,f,scan,c
+    Real:: t1,t2,t3,t4,t5,t6,di,dj,dk
+           do m = 1,nprotein
+          do l = 1,maxlength
+             protcoords(time+1,m,l)%x = protcoords(time,m,l)%x
+             protcoords(time+1,m,l)%y = protcoords(time,m,l)%y
+             protcoords(time+1,m,l)%z = protcoords(time,m,l)%z
+          end do
+       end do
+       t = time + 1
+    do scan = 1,nprotein*maxlength
+
+      
+       run = .true.
+      
+29     if (run .eqv. .true.) then     
+         
+          pivotx = .false.
+          pivoty = .false.
+          pivotz = .false.
+         
+          m =modulo(int(ran2(seed)*nprotein),nprotein)+1
+          !if (m == 0) m =1 !sort this!
+          l = modulo(int(ran2(seed)*maxlength),maxlength)+1
+          !if (l ==0) l =1 !sort this!
+          random = ran2(seed)
+          !write(6,*) m,l
+          rightangle = .false.
+          if (l ==1 .or. l == maxlength) then
+             endchain = .true.
+            
+            
+            
+          else if (l /=1 .and. l /= maxlength) then
+             endchain = .false.
+          end if
+          if(endchain .eqv. .false.) then
+             if (abs(mod(protcoords(t,m,l+1)%x - protcoords(t,m,l-1)%x,gridsize)) == 2.0 &
+                  .or. abs(mod(protcoords(t,m,l+1)%y - protcoords(t,m,l-1)%y,gridsize)) == 2.0 &
+                  .or. abs(mod(protcoords(t,m,l+1)%z - protcoords(t,m,l-1)%z,gridsize)) == 2.0 ) then
+                goto 29
+             else
+                rightangle = .true.
+             end if
+          end if
+         
+          if (rightangle .eqv. .true.) then
+            
+             deltax1 = mod(protcoords(t,m,l+1)%x - protcoords(t,m,l)%x,gridsize)
+             deltax2 =mod(protcoords(t,m,l-1)%x - protcoords(t,m,l)%x,gridsize)
+             deltay1=mod(protcoords(t,m,l+1)%y - protcoords(t,m,l)%y,gridsize)
+             deltay2 =mod(protcoords(t,m,l-1)%y - protcoords(t,m,l)%y,gridsize)
+             deltaz1 =mod(protcoords(t,m,l+1)%z - protcoords(t,m,l)%z,gridsize)
+             deltaz2= mod(protcoords(t,m,l-1)%z - protcoords(t,m,l)%z,gridsize)
+             !write(47,*) deltax1,deltax2,deltay1,deltay2
+             di = 0
+             dj = 0
+             dk = 0
+            
+             di = (deltax1 + deltax2)
+             dj = (deltay1 + deltay2)
+             dk = (deltaz1 + deltaz2)
+            
+             if (abs(di) > 1 .or. abs(dj) > 1 .or. abs(dk) > 1) then
+                goto 29
+             else
+                continue
+             end if
+            
+             i = modulo(protcoords(t,m,l)%x+di-1,gridsize)+1
+             j = modulo(protcoords(t,m,l)%y+dj-1,gridsize)+1
+             k = modulo(protcoords(t,m,l)%z+dk-1,gridsize)+1
+            
+            
+             do g = 1, nprotein
+                do f = 1,maxlength
+                   if (i == protcoords(t,g,f)%x .and. j == protcoords(t,g,f)%y &
+                        .and. k == protcoords(t,g,f)%z) then
+                      !write(6,*) 'fail'
+                      goto 29               
+                   else
+                      continue                 
+                   end if
+                end do
+             end do
+            
+             protcoords(t,m,l)%x = i
+             protcoords(t,m,l)%y = j
+             protcoords(t,m,l)%z = k
+             !write(6,*) 'rightangle move'
+            
+             xl = int((protcoords(t,m,l)%x*10)/split)-1
+             yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+             zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+             section = xl + yl + zl
+             protcoords(t,m,l)%location = section
+          end if
+         
+          if (l > 1 .and. l < maxlength-1) then
+             if (protcoords(t,m,l-1)%x == protcoords(t,m,l)%x &
+                  .and.  protcoords(t,m,l-1)%x == protcoords(t,m,l+1)%x &
+                  .and.protcoords(t,m,l-1)%x == protcoords(t,m,l+2)%x) then
+                pivotx = .true.                   
+             else if (protcoords(t,m,l-1)%y == protcoords(t,m,l)%y .and. &
+                  protcoords(t,m,l-1)%y == protcoords(t,m,l+1)%y &
+                  .and.protcoords(t,m,l-1)%y == protcoords(t,m,l+2)%y ) then
+                pivoty = .true.                                
+             else if (protcoords(t,m,l-1)%z == protcoords(t,m,l)%z &
+                  .and. protcoords(t,m,l-1)%z == protcoords(t,m,l+1)%z &
+                  .and.protcoords(t,m,l-1)%z == protcoords(t,m,l+2)%z ) then
+                pivotz = .true.
+             end if
+          end if
+          probs = ran2(seed)
+         
+         
+         
+!!!crank shaft
+         
+          if (pivotx .eqv. .true.) then
+             if (mod(protcoords(t,m,l)%y - protcoords(t,m,l-1)%y,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l+1)%y - protcoords(t,m,l+2)%y,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l)%y - protcoords(t,m,l+1)%y,gridsize) ==0.0) then
+                dy = 1.0
+                dz = 0.0  
+             else  if (mod(protcoords(t,m,l)%z - protcoords(t,m,l-1)%z,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l+1)%z - protcoords(t,m,l+2)%z,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l)%z - protcoords(t,m,l+1)%z,gridsize) ==0.0) then
+                dy = 0.0
+                dz = 1.0
+             else
+                goto 29
+             end if
+            
+             if (probs <= 1/3) then
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-2*dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == protcoords(t,m,l)%x .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-2*dz-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-2*dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == protcoords(t,m,l+1)%x .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-2*dz-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-2*dy-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-2*dz-1,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-2*dy-1,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-2*dz-1,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+               
+             else if (probs > 1/3 .and. probs <= 2/3) then
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-2,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-2,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-2,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-2,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+               
+             else if (probs > 2/3 .and. probs <= 1.0) then
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+               
+             end if
+          end if
+         
+!!!!!!!!!!pivot y
+         
+          if (pivoty .eqv. .true.) then
+             if (mod(protcoords(t,m,l)%x - protcoords(t,m,l-1)%x,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l+1)%x - protcoords(t,m,l+2)%x,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l)%x - protcoords(t,m,l+1)%x,gridsize) ==0.0) then
+                dx = 1.0
+                dz = 0.0  
+             else  if (mod(protcoords(t,m,l)%z - protcoords(t,m,l-1)%z,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l+1)%z - protcoords(t,m,l+2)%z,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l)%z - protcoords(t,m,l+1)%z,gridsize) ==0.0) then
+                dx = 0.0
+                dz = 1.0
+             else
+                goto 29
+             end if
+            
+             if (probs <= 1/3) then
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-2*dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == protcoords(t,m,l)%y .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-2*dz-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-2*dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == protcoords(t,m,l+1)%y .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-2*dz-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-2*dx-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-2*dz-1,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-2*dx-1,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-2*dz-1,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+               
+             else if (probs > 1/3 .and. probs <= 2/3) then
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-2,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-2,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-2,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-2,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+               
+             else if (probs > 2/3 .and. probs <= 1.0) then
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-dz-1,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-dz-1,gridsize)+1
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+                  
+             end if
+          end if
+         
+!!!!pivot z
+         
+         
+          if (pivotz .eqv. .true.) then
+             if (mod(protcoords(t,m,l)%y - protcoords(t,m,l-1)%y,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l+1)%y - protcoords(t,m,l+2)%y,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l)%y - protcoords(t,m,l+1)%y,gridsize) ==0.0) then
+                dy = 1.0
+                dx = 0.0  
+             else  if (mod(protcoords(t,m,l)%x - protcoords(t,m,l-1)%x,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l+1)%x - protcoords(t,m,l+2)%x,gridsize) ==1.0 .and. &
+                  mod(protcoords(t,m,l)%x - protcoords(t,m,l+1)%x,gridsize) ==0.0) then
+                dy = 0.0
+                dx = 1.0
+             else
+                goto 29
+             end if
+            
+             if (probs <= 1/3) then
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-2*dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == protcoords(t,m,l)%z .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-2*dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-2*dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == protcoords(t,m,l+1)%z .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-2*dx-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-2*dy-1,gridsize)+1
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-2*dx-1,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-2*dy-1,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-2*dx-1,gridsize)+1
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+               
+             else if (probs > 1/3 .and. probs <= 2/3) then
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z-2,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z-2,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z-2,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z-2,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+             else if (probs > 2/3 .and. probs <= 1.0) then
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%y == modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l)%z,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,m,l+1)%z,gridsize)+1 .and. &
+                           protcoords(t,g,f)%x == modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                protcoords(t,m,l)%y = modulo(protcoords(t,m,l)%y-dy-1,gridsize)+1
+                protcoords(t,m,l)%x = modulo(protcoords(t,m,l)%x-dx-1,gridsize)+1
+                protcoords(t,m,l+1)%y = modulo(protcoords(t,m,l+1)%y-dy-1,gridsize)+1
+                protcoords(t,m,l+1)%x = modulo(protcoords(t,m,l+1)%x-dx-1,gridsize)+1
+                protcoords(t,m,l)%z = modulo(protcoords(t,m,l)%z,gridsize)+1
+                protcoords(t,m,l+1)%z = modulo(protcoords(t,m,l+1)%z,gridsize)+1
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+             end if
+          end if
+
+         
+         
+         
+         
+         
+         
+         
+         
+          if (endchain .eqv. .true.) then
+            
+             random = ran2(seed) 
+            
+             z1=1
+             z2=1
+             z3=1
+             z4=1
+             z5=1
+             z6 = 1
+             n=6
+            
+             control = 1
+            
+15           if (control ==1) then
+                if (l == 1) then
+                   i = protcoords(t,m,l+1)%x
+                   j = protcoords(t,m,l+1)%y
+                   k = protcoords(t,m,l+1)%z
+                else if (l == maxlength) then
+                   i = protcoords(t,m,l-1)%x
+                   j = protcoords(t,m,l-1)%y
+                   k = protcoords(t,m,l-1)%z
+                end if
+               
+                t1 = real(z1)/n
+                t2 = real(z1+z2)/n
+                t3 = real(z1 + z2 +z3)/n
+                t4 = real(z1 + z2 + z3 + z4)/n
+                t5 = real(z1 + z2 + z3 + z4 + z5)/n
+                t6 = real(z1 + z2 + z3 + z4 + z5 + z6)/n
+                if(random<= t1 .AND. z1 == 1) then
+                   i = modulo(i,gridsize)+1
+                   z1=0
+                else if (random> t1 .AND. random<=t2 .AND. z2 == 1) then
+                   i = modulo(i - 2,gridsize)+1
+                   z2=0                 
+                else if (random> t2 .AND. random<=t3 .AND. z3 == 1) then
+                   j = modulo(j,gridsize)+1
+                   z3=0
+                else if (random> t3 .AND. random<=t4 .AND. z4 == 1) then                 
+                   j = modulo(j -2,gridsize)+1
+                   z4=0
+                else if (random> t4 .AND. random<=t5 .AND. z5 == 1) then
+                   k  = modulo(k,gridsize)+1
+                   z5=0
+                else if (random> t5 .AND. random<=1.0 .AND. z6 == 1) then                 
+                   k = modulo(k-2,gridsize)+1
+                   z6=0
+                end if
+                do g = 1, nprotein
+                   do f = 1,maxlength
+                      if (i == protcoords(t,g,f)%x .and. j == protcoords(t,g,f)%y &
+                           .and. k == protcoords(t,g,f)%z ) then
+                         n=n-1
+                         if (n == 0) then
+                            goto 29
+                         else
+                            goto 15
+                         end if
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+            
+                xl = int((i*10)/split)-1
+                yl = 1+int(((j*10)/split) -1)*N
+                zl = int(((k*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                !write(6,*) 'f'
+               
+               
+                protcoords(t,m,l)%x = i
+                protcoords(t,m,l)%y = j
+                protcoords(t,m,l)%z = k
+                protcoords(t,m,l)%location = section              
+               
+                !write(6,*) 'end chain move sucess'
+             else
+                continue
+             end if
+            
+             if (mod(scan,maxlength) == 0) then
+               
+                c = ran2(seed)*nprotein
+                if (c ==0) c =1
+               
+                dx = mod(protcoords(t,c,1)%x - protcoords(t,c,2)%x,gridsize)
+                dy = mod(protcoords(t,c,1)%y - protcoords(t,c,2)%y,gridsize)
+                dz = mod(protcoords(t,c,1)%z - protcoords(t,c,2)%z,gridsize)
+               
+               
+                do g = 1,nprotein
+                   do f = 1,maxlength
+                      if(protcoords(t,g,f)%x == modulo(protcoords(t,c,1)%x + dx -1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%y == modulo(protcoords(t,c,1)%y + dy -1,gridsize)+1 .and. &
+                           protcoords(t,g,f)%z == modulo(protcoords(t,c,1)%z + dz -1,gridsize)+1) then
+                         goto 29
+                      else
+                         continue
+                      end if
+                   end do
+                end do
+               
+                do l =1,maxlength-1
+                   protcoords(t,c,maxlength-l+1)%x = protcoords(t,c,maxlength-l)%x
+                   protcoords(t,c,maxlength-l+1)%y = protcoords(t,c,maxlength-l)%y
+                   protcoords(t,c,maxlength-l+1)%z = protcoords(t,c,maxlength-l)%z
+                  
+                   xl = int((protcoords(t,m,l)%x*10)/split)-1
+                   yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                   zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                   section = xl + yl + zl
+                   protcoords(t,m,l)%location = section
+                end do
+               
+                protcoords(t,c,1)%x = modulo(protcoords(t,c,1)%x + dx,gridsize)
+                protcoords(t,c,1)%y = modulo(protcoords(t,c,1)%y + dy,gridsize)
+                protcoords(t,c,1)%z = modulo(protcoords(t,c,1)%z + dz,gridsize)
+               
+                xl = int((protcoords(t,m,l)%x*10)/split)-1
+                yl = 1+int(((protcoords(t,m,l)%y*10)/split) -1)*N
+                zl = int(((protcoords(t,m,l)%z*10)/split) -1)*(N**2)
+                section = xl + yl + zl
+                protcoords(t,m,l)%location = section
+             end if
+
+          end if
+       end if
+    end do
+  end subroutine positioning
+ 
+ 
+ 
+  subroutine comfind
+    t = time
+   
+    do m = 1,nprotein
+       comx = 0.0
+       comy = 0.0
+       comz = 0.0
+       do l = 1,maxlength
+          comx = modulo(comx + protcoords(t,m,l)%x-1,gridsize)+1
+          comy = modulo(comy + protcoords(t,m,l)%y-1,gridsize)+1
+          comz = modulo(comz + protcoords(t,m,l)%z-1,gridsize)+1    
+       end do
+       com(t,m)%x = comx
+       com(t,m)%y = comy
+       com(t,m)%z = comz
+    end do
+   
+  end subroutine comfind
+ 
+ 
+ 
+ 
+ 
+ 
+  subroutine rms
+   
+    t = time + 1
+    dxtot = 0.0
+    dytot = 0.0
+    dztot = 0.0
+    do m = 1, nprotein     
+       dx = mod(com(t,m)%x - com(t-1,m)%x,gridsize)
+       dxtot = dxtot + (dx**2)
+       dy = mod(com(t,m)%y -com(t-1,m)%y,gridsize)
+       dytot = dytot + (dy**2)
+       dz = mod(com(t,m)%z - com(t-1,m)%z,gridsize)
+       dztot = dztot + (dz**2)
+    end do
+   
+    disp = (dxtot+dytot + dztot)/nprotein
+    totdisp = totdisp+disp
+    write(29,*) time,totdisp
+   
+   end subroutine rms
+
+
+
+   subroutine dataout
+     !write(6,*) 'data'
+     write(67,*) nprotein*maxlength
+     write(67,*) ' '
+     t = time
+     do m = 1,nprotein
+        do l = 1,maxlength
+           !maybe put in m
+           write(67,*) 'C', 2*protcoords(t,m,l)%x, 2*protcoords(t,m,l)%y, &
+           2*protcoords(t,m,l)%z
+           !write(19,*) l, protcoords(t,m,l)%x, protcoords(t,m,l)%y, &
+            !    protcoords(t,m,l)%z
+        end do
+     end do
+   end subroutine dataout
+
+   subroutine length
+
+     t = time
+     totchainlength = 0.0
+     !actualchainlength = 0.0
+     !variance = 0.0
+     !testlength = 0.0
+     do m = 1,nprotein
+        !chainlength = 0.0
+        chainlength(m) = SQRT((min(modulo(protcoords(t,m,1)%x - protcoords(t,m,maxlength)%x,gridsize), abs(gridsize- &
+             modulo(protcoords(t,m,1)%x - protcoords(t,m,maxlength)%x,gridsize))))**2 + &
+             (min(modulo(protcoords(t,m,1)%y - protcoords(t,m,maxlength)%y,gridsize), abs(gridsize - &
+             modulo(protcoords(t,m,1)%y - protcoords(t,m,maxlength)%y,gridsize))))**2 + &
+             (min(modulo(protcoords(t,m,1)%z - protcoords(t,m,maxlength)%z,gridsize), abs(gridsize - &
+            modulo(protcoords(t,m,1)%z - protcoords(t,m,maxlength)%z,gridsize))))**2)
+!testlength = testlength + chainlength(m)
+        write(31,*) chainlength(m)
+     end do
+             totchainlength = sum(chainlength)
+     avechainlength = totchainlength/nprotein
+!write(6,*) 'brute = ', testlength, 'sum =', totchainlength
+     do m = 1,nprotein
+variance(m) = (avechainlength - chainlength(m))**2
+     end do
+
+     varian = sum(variance)
+     totvar = totvar + varian/nprotein
+     !testtotlength = testtotlength + testlength
+     actualchainlength = actualchainlength + avechainlength
+     write(91,*) t,avechainlength
+   end subroutine length
+  
+   subroutine error
+     lengthvar = 0.0
+     do t = 1,maxtime
+!lengthvar =
+     end do
+    
+   end subroutine error
+
+  
+  subroutine bonding
+    integer :: bx,by,bz,f
+    bx = 0
+    by = 0
+    bz = 0
+    do m = 1,nprotein
+       do l = 1,maxlength
+          do f = 1,nprotein
+             if (f /=m) then
+             do g = 1,maxlength
+                !if (protcoords(t,m,l)%location == protcoords(t,f,g)%location) then
+                if (modulo(protcoords(t,m,l)%x - protcoords(t,f,g)%x,gridsize) < separation &
+                     .and. modulo(protcoords(t,m,l)%y - protcoords(t,f,g)%y,gridsize) < separation &
+                     .and. modulo(protcoords(t,m,l)%z - protcoords(t,f,g)%z,gridsize) < separation) then
+                   bz = bz+1
+                end if
+                !end if
+             end do
+          else
+             continue
+             end if
+          end do
+       end do
+    end do
+    write(51,*) time,bz
+
+   
+  end subroutine bonding
+  
+  
+ end program move
+ 
+ 
+ FUNCTION ran2(idum)
+   INTEGER idum,IM1,IM2,IMM1,IA1,IA2,IQ1,IQ2,IR1,IR2,NTAB,NDIV
+   REAL ran2,AM,EPS,RNMX
+   PARAMETER (IM1=2147483563,IM2=2147483399,AM=1./IM1,IMM1=IM1-1, &
+        IA1=40014,IA2=40692,IQ1=53668,IQ2=52774,IR1=12211,IR2=3791, &
+        NTAB=32,NDIV=1+IMM1/NTAB,EPS=1.2e-7,RNMX=1.-EPS)
+   INTEGER idum2,j,k,iv(NTAB),iy
+   SAVE iv,iy,idum2
+   DATA idum2/123456789/, iv/NTAB*0/, iy/0/
+   if (idum.le.0) then
+      idum=max(-idum,1)
+      idum2=idum
+      do 11 j=NTAB+8,1,-1
+        
+         k=idum/IQ1
+         idum=IA1*(idum-k*IQ1)-k*IR1
+         if (idum.lt.0) idum=idum+IM1
+         if (j.le.NTAB) iv(j)=idum
+11       continue
+         iy=iv(1)
+      endif
+      k=idum/IQ1
+      idum=IA1*(idum-k*IQ1)-k*IR1
+      if (idum.lt.0) idum=idum+IM1
+      k=idum2/IQ2
+      idum2=IA2*(idum2-k*IQ2)-k*IR2
+      if (idum2.lt.0) idum2=idum2+IM2
+      j=1+iy/NDIV
+      iy=iv(j)-idum2
+      iv(j)=idum
+      if(iy.lt.1)iy=iy+IMM1
+      ran2=min(AM*iy,RNMX)
+      return
+    END Function ran2
