@@ -107,7 +107,7 @@ program move
      call positioning
      call comfind
      
-     if (time > equlib) then
+     if (time > equilib) then
         call rms
         call radiusofgyration
         end if
