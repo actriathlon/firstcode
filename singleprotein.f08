@@ -2,7 +2,7 @@ program move
   implicit none
   
   
-  integer :: maxno,protno,seed,natoms,maxsize,maxtime,reptbackward,reptforward
+  integer :: maxno,protno,seed,natoms,maxsize,maxtime,reptbackward,reptforward,equilib
   real :: i,j,k,gridsize,randomz,deltax1,deltax2,dx,dy,dz,msd
   integer :: l,m,hold,z1,z2,z3,z4,z5,z6,control
   real :: deltay1,deltay2,deltaz1,deltaz2,totrmsbrute
@@ -16,7 +16,7 @@ program move
   integer :: gate,xbk,ybk,zbk,protpass,f,scan,c
   Real:: t1,t2,t3,t4,t5,t6,di,dj,dk
   integer :: cont1,cont2,cont3,cont4,totcont,successful,reject
-  character(len = 10) :: commandread,commandread2,comread3,comread4,comread5,comread6,comread7
+  character(len = 10) :: commandread,commandread2,comread3,comread4,comread5,comread6,comread7,comread8,comread9
   real :: runningaveROG,runningaveEtE,chainlength
   !real :: testlength,testtotlength
   integer :: piv,right,end,crank,rept
@@ -39,7 +39,7 @@ program move
   open(97, file = 'radiusofgyration.dat', action = 'write')
   !open(77, file = 'logmsd.dat', action = 'write')
   open(79, file = 'runningave.dat', action = 'write')
-  !open(99, file = 'deltas.dat', action = 'write')
+  open(99, file = 'deltas.dat', action = 'write')
   
   totrmsbrute = 0.0
   runningaveROG = 0.0
@@ -63,6 +63,10 @@ program move
   read(comread6, '(i1)') rept
   call get_command_argument(7,comread7)
   read(comread7, '(i1)') piv
+  call get_command_argument(8,comread8)
+  read(comread8, '(i1)') maxtime
+  call get_command_argument(9,comread9)
+  read(comread9, '(i1)') equilib 
   
   !reads in seed from commandline
   
@@ -94,7 +98,7 @@ program move
      !write(6,*) 'b'
      !call bonding
      !write(6,*) 'c'
-     if(time >5000) then
+     if(time >equilib) then
      call length
      end if
      !write(6,*) 'd'
@@ -102,13 +106,14 @@ program move
      !write(6,*) 'e'
      call positioning
      call comfind
-     call rms
-     if (time > 5000) then
+     
+     if (time > equlib) then
+        call rms
         call radiusofgyration
         end if
      call debug
      
-     write(79,*) time, runningaveEtE/time, runningaveROG/time
+     write(79,*) time-equilib, runningaveEtE/(time-equlib), runningaveROG/(time-equilib)
      
      !write(6,*) 'g'
      if (fail .eqv. .true.) then
@@ -152,7 +157,7 @@ contains
     read(17,*) gridsize
     natoms = gridsize**3
     read(17,*) BIN
-    read(17,*) maxtime
+    read(17,*) BIN !maxtime
     read(17,*) BIN
     read(17,*) split
   end subroutine initial
@@ -724,7 +729,7 @@ contains
     
     l = int(ran2(seed)*(maxlength-3))+2
     !write(6,*) 'm = ', m
-    write(6,*) 'l =', l
+    !write(6,*) 'l =', l
     t = time + 1
     
     
@@ -905,7 +910,7 @@ contains
              successful = successful + 1
              
           end do
-          !write(6,*) '1a'
+          write(99,*) '1a'
        else if (choose3 > 1.0/5 .and. choose3 <= 2.0/5) then 
           
           do b = l-1,1,-1 
@@ -927,7 +932,7 @@ contains
              successful = successful + 1
              
           end do
-          !             write(6,*) '2a'
+          write(99,*) '2a'
           
           
        else if (choose3 > 2.0/5 .and. choose3 <= 3.0/5) then
@@ -951,7 +956,7 @@ contains
              successful = successful + 1
              
           end do
-          ! write(6,*) '3a'
+          write(99,*) '3a'
           
        else if (choose3 > 3.0/5 .and. choose3 <= 4.0/5) then
           
@@ -974,7 +979,7 @@ contains
              successful = successful + 1
              
           end do
-          !write(6,*) '4a'
+          write(99,*) '4a'
        else if (choose3 > 4.0/5 .and. choose3 <= 1.0) then
           
           do b = l-1,1,-1 
@@ -996,7 +1001,7 @@ contains
              successful = successful + 1
              
           end do
-          !write(6,*) '5a'
+          write(99,*) '5a'
        end if
        
     end if
@@ -1322,44 +1327,44 @@ write(97,*) time,totrog/(nprotein*maxlength),SQRT(totrog/(nprotein*maxlength))
     real,dimension(:),allocatable :: msdx,msderrorx,msdy,msderrory,msdz,msderrorz,msdt
     allocate(msdx(nprotein))
     allocate(msderrorx(nprotein))
-        allocate(msdy(nprotein))
-        allocate(msderrory(nprotein))
-        allocate(msdz(nprotein))
-        allocate(msderrorz(nprotein))
-
+    allocate(msdy(nprotein))
+    allocate(msderrory(nprotein))
+    allocate(msdz(nprotein))
+    allocate(msderrorz(nprotein))
+    
     t = time + 1
     dxtot = 0.0
     dytot = 0.0
     dztot = 0.0
     msd = 0.0
     do m = 1, nprotein
-
+       
        msdx(m) = (min(modulo(com(t,m)%x - com(t-1,m)%x,gridsize), &
             (gridsize - modulo(com(t,m)%x -com(t-1,m)%x,gridsize))))**2
        !write(6,*) 'x =',msdx(m)
-
+       
        !write(6,*) 'y sortr = ',com(t,m)%y,com(t-1,m)%y
        msdy(m) = (min(modulo(com(t,m)%y -com(t-1,m)%y,gridsize), &
             (gridsize - modulo(com(t,m)%y -com(t-1,m)%y,gridsize))))**2
-          !write(6,*) 'y t = ', com(t,m)%y,'y t-1 = ', com(t-1,m)%y
+       !write(6,*) 'y t = ', com(t,m)%y,'y t-1 = ', com(t-1,m)%y
        !write(6,*) 'y =',msdy(m)
        msdz(m) = (min(modulo(com(t,m)%z - com(t-1,m)%z,gridsize), &
             (gridsize - modulo(com(t,m)%z -com(t-1,m)%z,gridsize))))**2
        
        !msdz(m) = mod(com(t,m)%z - com(t-1,m)%z,gridsize)
-              !write(6,*) 'z =',msdz(m)
+       !write(6,*) 'z =',msdz(m)
        totrmsbrute = totrmsbrute + msdx(m) + msdy(m) + msdz(m)
-   end do
+    end do
     msd = sum(msdx) + sum(msdy) + sum(msdz)
     !write(6,*) 'msd =', msd
     !write(6,*) 'msdsum = ', msdsum !this is wrong
     !write(6,*) 'msd brute' , totrmsbrute
-       msdsum = msdsum + msd
-
-       if(modulo(time,10) == 0) then
-       write(29,*) nprotein*maxlength*time,totrmsbrute
+    msdsum = msdsum + msd
+    
+    if(modulo(time,10) == 0) then
+       write(29,*) nprotein*maxlength*(time-equlib),totrmsbrute
        !write(77,*) log(real(nprotein*maxlength*time)), log(totrmsbrute)
-       end if
+    end if
    end subroutine rms
 
 
@@ -1484,8 +1489,11 @@ chainlength = ((dxsum**2) + (dysum**2) + (dzsum**2))
                    !write(6,*) protcoords(m,l)%x, protcoords(f,g)%x
                       if(protcoords(m,l)%x == protcoords(f,g)%x  .and. protcoords(m,l)%y == protcoords(f,g)%y  &
                            .and. protcoords(m,l)%z == protcoords(f,g)%z ) then
-                         write(6,*) 'fail is due to', l,g
+                         !write(6,*) 'fail is due to', l,g
                          fail = .true.
+                         if (protcoords(m,l)%x == 0.0) write(6,*) 'x fail',l
+                         if (protcoords(m,l)%y == 0.0) write(6,*) 'y fail',l
+                          if (protcoords(m,l)%z == 0.0) write(6,*) 'z fail',l
                          !write(6,*) 'FAILLLLLLLLLLLLLLLLLL'
                       end if
                       end if
