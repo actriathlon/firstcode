@@ -113,7 +113,7 @@ program move
         end if
      call debug
      
-     write(79,*) time-equilib, runningaveEtE/(time-equlib), runningaveROG/(time-equilib)
+     write(79,*) time-equilib, runningaveEtE/(time-equilib), runningaveROG/(time-equilib)
      
      !write(6,*) 'g'
      if (fail .eqv. .true.) then
@@ -1362,7 +1362,7 @@ write(97,*) time,totrog/(nprotein*maxlength),SQRT(totrog/(nprotein*maxlength))
     msdsum = msdsum + msd
     
     if(modulo(time,10) == 0) then
-       write(29,*) nprotein*maxlength*(time-equlib),totrmsbrute
+       write(29,*) nprotein*maxlength*(time-equilib),totrmsbrute
        !write(77,*) log(real(nprotein*maxlength*time)), log(totrmsbrute)
     end if
    end subroutine rms
