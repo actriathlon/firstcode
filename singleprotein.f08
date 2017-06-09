@@ -31,7 +31,7 @@ program move
   
   open(17, file = 'setup2.txt', action = 'read')
   open(23, file = 'initialtake2.xyz', action = 'read')
-  open(67, file = 'move.xyz', action = 'write')
+  !open(67, file = 'move.xyz', action = 'write')
   open(29, file = 'rms.dat', action = 'write')
   !open(31, file = 'chainlength.dat', action = 'write')
   !open(51, file = 'bonds.dat', action = 'write')
@@ -64,9 +64,9 @@ program move
   call get_command_argument(7,comread7)
   read(comread7, '(i1)') piv
   call get_command_argument(8,comread8)
-  read(comread8, '(i1)') maxtime
+  read(comread8, '(i7)') maxtime
   call get_command_argument(9,comread9)
-  read(comread9, '(i1)') equilib 
+  read(comread9, '(i5)') equilib 
   
   !reads in seed from commandline
   
@@ -93,7 +93,7 @@ program move
      !call comfind
      !write(6,*) 'a'
      !if (mod(time,10) == 0) then
-     call dataout
+     !call dataout
      !end if
      !write(6,*) 'b'
      !call bonding
@@ -110,10 +110,11 @@ program move
      if (time > equilib) then
         call rms
         call radiusofgyration
+        write(79,*) time-equilib, runningaveEtE/(time-equilib), runningaveROG/(time-equilib)
         end if
      call debug
      
-     write(79,*) time-equilib, runningaveEtE/(time-equilib), runningaveROG/(time-equilib)
+
      
      !write(6,*) 'g'
      if (fail .eqv. .true.) then
@@ -871,7 +872,7 @@ contains
     else if (l <= maxlength/2) then
        !continue
        !else if (l == 100000) then
-       do g = l-1,1,-1
+       do g = 1,l-1
           
           delx(m,g) = protcoords(m,g)%x - protcoords(m,l)%x
           xhold = delx(m,g)
@@ -890,7 +891,7 @@ contains
           
        end do
        if (choose3 <= 1.0/5) then
-          do b = l-1,1,-1 
+          do b = 1,l-1 
              do f = 1,nprotein
                 do g = 1,maxlength
                    if(modulo(protcoords(m,l)%x - dely(m,b)-1,gridsize)+1 == protcoords(f,g)%x .and. &
@@ -903,7 +904,7 @@ contains
              end do
           end do
           
-          do b = l-1,1,-1 
+          do b = 1,l-1 
              protcoords(m,b)%x = modulo(protcoords(m,l)%x -dely(m,b)-1,gridsize)+1
              protcoords(m,b)%y = modulo(protcoords(m,l)%y + delx(m,b)-1,gridsize)+1
              !protcoords(t,m,b)%z = protcoords(t,m,b)%z 
@@ -913,7 +914,7 @@ contains
           write(99,*) '1a'
        else if (choose3 > 1.0/5 .and. choose3 <= 2.0/5) then 
           
-          do b = l-1,1,-1 
+          do b = 1,l-1 
              do f = 1,nprotein
                 do g = 1,maxlength
                    if(modulo(protcoords(m,l)%x + dely(m,b)-1,gridsize)+1 == protcoords(f,g)%x .and. &
@@ -925,7 +926,7 @@ contains
                 end do
              end do
           end do
-          do b =l-1,1,-1 
+          do b =1,l-1 
              protcoords(m,b)%x = modulo(protcoords(m,l)%x + dely(m,b)-1,gridsize)+1
              protcoords(m,b)%y = modulo(protcoords(m,l)%y - delx(m,b)-1,gridsize)+1
              !protcoords(t,m,b)%z = protcoords(t,m,b)%z + mod(protcoords(t,m,l)%y-protcoords(t,m,b)%y,gridsize
@@ -937,7 +938,7 @@ contains
           
        else if (choose3 > 2.0/5 .and. choose3 <= 3.0/5) then
           
-          do b = l-1,1,-1 
+          do b = 1,l-1 
              do f = 1,nprotein
                 do g = 1,maxlength
                    if(modulo(protcoords(m,l)%x - delx(m,b)-1,gridsize)+1 == protcoords(f,g)%x .and. &
@@ -949,8 +950,8 @@ contains
                 end do
              end do
           end do
-          do b =l-1,1,-1                 
-             protcoords(m,b)%x = modulo(protcoords(m,l)%x -delx(m,l)-1,gridsize)+1
+          do b =1,l-1                 
+             protcoords(m,b)%x = modulo(protcoords(m,l)%x -delx(m,b)-1,gridsize)+1
              protcoords(m,b)%y = modulo(protcoords(m,l)%y - dely(m,b)-1,gridsize)+1
              !protcoords(t,m,b)%z = protcoords(t,m,b)%z + mod(protcoords(t,m,l)%y-protcoords(t,m,b)%y,gridsize
              successful = successful + 1
@@ -960,7 +961,7 @@ contains
           
        else if (choose3 > 3.0/5 .and. choose3 <= 4.0/5) then
           
-          do b = l-1,1,-1 
+          do b = 1,l-1
              do f = 1,nprotein
                 do g = 1,maxlength
                    if(modulo(protcoords(m,l)%x - delz(m,b)-1,gridsize)+1 == protcoords(f,g)%x .and. &
@@ -972,7 +973,7 @@ contains
                 end do
              end do
           end do
-          do b =l-1,1,-1 
+          do b =1,l-1 
              protcoords(m,b)%x = modulo(protcoords(m,l)%x - delz(m,b)-1,gridsize)+1
              protcoords(m,b)%z = modulo(protcoords(m,l)%z + delx(m,b)-1,gridsize)+1
              !protcoords(t,m,b)%z = protcoords(t,m,b)%z + mod(protcoords(t,m,l)%y-protcoords(t,m,b)%y,gridsize
@@ -982,7 +983,7 @@ contains
           write(99,*) '4a'
        else if (choose3 > 4.0/5 .and. choose3 <= 1.0) then
           
-          do b = l-1,1,-1 
+          do b = 1,l-1 
              do f = 1,nprotein
                 do g = 1,maxlength
                    if(modulo(protcoords(m,l)%x + delz(m,b)-1,gridsize)+1 == protcoords(f,g)%x .and. &
@@ -994,7 +995,7 @@ contains
                 end do
              end do
           end do
-          do b = l-1,1,-1                
+          do b = 1,l-1               
              protcoords(m,b)%x = modulo(protcoords(m,l)%x + delz(m,b)-1,gridsize)+1
              protcoords(m,b)%z = modulo(protcoords(m,l)%z - delx(m,b)-1,gridsize)+1
              !protcoords(t,m,b)%z = protcoords(t,m,b)%z + mod(protcoords(t,m,l)%y-protcoords(t,m,b)%y,gridsize
@@ -1014,7 +1015,6 @@ contains
     
     
   end subroutine pivot
-  
   
   subroutine reptation
     !perform reptation
