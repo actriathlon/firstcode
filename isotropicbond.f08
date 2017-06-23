@@ -2,7 +2,7 @@ program move
   implicit none
 
 
-  integer :: maxno,protno,seed,natoms,maxsize,maxtime,reptbackward,reptforward,equilib
+  integer :: maxno,protno,seed,natoms,maxsize,maxtime,reptbackward,reptforward,equilib,st,fi
   real :: i,j,k,gridsize,randomz,deltax1,deltax2,dx,dy,dz,msd
   integer :: l,m,hold,z1,z2,z3,z4,z5,z6,control,debugging
   real :: deltay1,deltay2,deltaz1,deltaz2,totrmsbrute
@@ -14,15 +14,19 @@ program move
   real :: actualchainlength,totvar,deviate,totdeviate,varian,separation,lengthvar,random
   real,dimension(:),allocatable :: variance,disp,rmserror,dxtot,dytot,dztot,dx1,dy1,dz1
   integer :: gate,xbk,ybk,zbk,protpass,f,scan,c
-  Real:: t1,t2,t3,t4,t5,t6,di,dj,dk
+  Real:: t1,t2,t3,t4,t5,t6,di,dj,dk,initialenergy,totalenergy
   integer :: cont1,cont2,cont3,cont4,totcont,successful,reject
   character(len = 10) :: commandread,commandread2,comread3,comread4,comread5,comread6,comread7,comread8,comread9,comread10,comread11
   real :: runningaveROG,runningaveEtE,chainlength,sumdebug
   !real :: testlength,testtotlength
-  integer :: piv,right,end,crank,rept,isoenergy,deltaiso,isocount,datayes
+  integer :: piv,right,end,crank,rept,isoenergy,deltaiso,isocount,datayes,deltaint
   real,dimension(:,:,:), allocatable :: isobond,tempisobond
+  real,dimension(:,:,:,:),allocatable :: tempintbond,intbond
   real :: kT
   character(len = 10) :: comread12
+  logical :: energypassx,energypassy,energypassz,overlapvar,reptcont
+  integer :: pr,ch1,ch2,str,fir,proti,othere
+
 
   type protein
      real :: x,y,z
@@ -44,9 +48,11 @@ program move
   open(79, file = 'runningave.dat', action = 'write')
   !open(99, file = 'deltas.dat', action = 'write')
   !open(93, file = 'temporarycoord.dat', action = 'write')
-  open(93, file = 'energyiso.dat', action = 'write')
+  open(93, file = 'energy.dat', action = 'write')
   !open(72, file = 'bonddata.dat', action = 'write')
 
+
+  !sort out end moves, pivot, right and crank
   reptforward = 0
   reptbackward = 0
   totrmsbrute = 0.0
@@ -85,7 +91,7 @@ program move
   read(comread12,*) kT
 
   write(6,*) 'kT =', kT
-    
+
   !reads in seed from commandline
 
 
@@ -105,37 +111,31 @@ program move
   allocate(dz1(maxlength))
   allocate(isobond(nprotein,maxlength,maxlength))
   allocate(tempisobond(nprotein,maxlength,maxlength))
+  allocate(intbond(nprotein,nprotein,maxlength,maxlength))
+  allocate(tempintbond(nprotein,nprotein,maxlength,maxlength))
+
   count = 0
   time = 0
   totdisp = 0.0
 
   call foundation
-
+totalenergy = initialenergy
   !call dataout
   call comfind
   actualchainlength = 0.0
   do time = 1,maxtime,1
      fail = .false.
-     !call comfind
-     !write(6,*) 'a'
-     if (mod(time,100) == 0 .and. datayes == 1) then
-     call dataout
+     if (mod(time,10) == 0 .and. datayes == 1) then
+        call dataout
      end if
-     !write(6,*) 'b'
-     !call bonding
-     !write(6,*) 'c'
-
-     !write(6,*) 'd'
-
-     !write(6,*) 'e'
      call positioning
      call comfind
-
+write(93,*) time,totalenergy
      if (time > equilib) then
         call rms
      end if
 
-          if(time >equilib .and. modulo(time,100) == 0) then
+     if(time >equilib .and. modulo(time,100) == 0) then
         call length
         call radiusofgyration
         write(79,*) time-equilib, runningaveEtE/(time-equilib), runningaveROG/(time-equilib)
@@ -146,16 +146,12 @@ program move
         continue
      end if
 
-     call energy
-
-
-
      !write(6,*) 'g'
-     !if (fail .eqv. .true.) then
-     !write(6,*) 'step= ', time, 'FAIL'
+     if (fail .eqv. .true.) then
+     write(6,*) 'step= ', time, 'FAIL'
      !else
      !write(6,*) 'step =',time
-     !end if
+     end if
 
   end do
   !call error
@@ -218,19 +214,10 @@ contains
        end do
     end do
     isocount = 0
-    do m = 1,nprotein,1
-       do l = 1,maxlength,1
-          do g = l,maxlength,1
-             sumdebug = protcoords(m,l)%x - protcoords(m,g)%x + &
-                  protcoords(m,l)%y - protcoords(m,g)%y + protcoords(m,l)%z - protcoords(m,g)%z
-             if(sumdebug == 1.0 .or. sumdebug == -1.0*(gridsize-1.0)) then
-                isobond(m,l,g) = 1.0
-                isocount = isocount + 1
-             end if
-          end do
-       end do
-    end do
-
+    write(6,*) 'a'
+    call energy
+    call debug
+    write(6,*) 'b'
     isoenergy = isocount
     write(93,*) 0, isoenergy
 
@@ -246,38 +233,38 @@ contains
 
 
     t = time + 1
-    do scan = 1, nprotein*maxlength,1
+    do scan = 1,nprotein*maxlength,1
        count = count + 1
        rac = .true.
        run = .true.
        run2 = .true. 
 
-
-
+       overlapvar = .false.
+       reptcont = .false.
        randomz = ran2(seed)
        nmoves = piv + crank + end + right + rept
 
        if (randomz <= (1.0*end)/ nmoves .and. end == 1) then
-         !write(6,*) 'end' 
+          !write(6,*) 'end' 
           call endmove
 
        else if (randomz > (1.0*end)/nmoves .and. randomz <= (1.0*end+crank)/nmoves .and. crank == 1) then
-         !write(6,*) 'crank' 
+          ! write(6,*) 'crank' 
           call crankshaftmove
 
        else if (randomz > (1.0*end + crank)/nmoves .and. randomz <= (1.0*end + crank + right)/nmoves .and. right ==1) then
-        ! write(6,*) 'right' 
+          ! write(6,*) 'right' 
           call rightanglemove
 
        else if (randomz > (1.0*end + crank + right)/nmoves .and. randomz <= (1.0*end + crank + right + rept)/nmoves &
             .and. rept ==1) then
-         !write(6,*) 'reptation' 
+          !write(6,*) 'reptation' 
           call reptation
        else if (randomz > (1.0*end + crank + right+rept)/nmoves .and. randomz <= (1.0*end + crank + right + rept + piv)/nmoves &
             .and. piv == 1) then 
-         !write(6,*) 'pivot' 
+          !write(6,*) 'pivot' 
           call pivot
- 
+
        end if
     end do
   end subroutine positioning
@@ -296,23 +283,26 @@ contains
        continue
     end if
 
+    proti = m
+
     dummy = int(ran2(seed)*(maxlength-1))+1
     dummy2 = int(ran2(seed)*(maxlength-1))+1
     l = min(dummy,dummy2)
     p = max(dummy,dummy2)
     if (p-l <= 3) then
        goto 71
-       !crankcont = .false.
-       !goto 43
     end if
 
-    !write(6,*) 'm =',m,'l =', l
     probs = ran2(seed)
     pivotx = .false.
     pivoty = .false.
     pivotz = .false.
 
 
+    str = l+1
+    fir = p-1
+    st = 1
+    fi = maxlength
 
     !check to see if 4 atoms are in the same plane
     if (protcoords(m,l)%x /= protcoords(m,p)%x &
@@ -362,22 +352,17 @@ contains
              tempcoord(m,s)%y = modulo(protcoords(m,l)%y-dz1(s)-1,gridsize)+1
              tempcoord(m,s)%z = modulo(protcoords(m,l)%z+dy1(s)-1,gridsize)+1
           end do
-          do s = l+1,p-1,1
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%y == tempcoord(m,s)%y.and. &
-                           protcoords(g,f)%x == tempcoord(m,s)%x .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z) then
-                         crankcont = .false.
-                         goto 43
-                      else                   
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
+
 
 
 
@@ -397,22 +382,18 @@ contains
              tempcoord(m,s)%y = modulo(protcoords(m,l)%y+dz1(s)-1,gridsize)+1
              tempcoord(m,s)%z = modulo(protcoords(m,l)%z-dy1(s)-1,gridsize)+1
           end do
-          do s = l+1,p-1,1   
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%x == tempcoord(m,s)%x .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
+
 
        else if (probs > (2.0/3) .and. probs <= (1.0)) then
 
@@ -422,28 +403,21 @@ contains
              tempcoord(m,s)%z = modulo(protcoords(m,l)%z-dz1(s)-1,gridsize)+1
           end do
 
-          do s = l+1,p-1,1   
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%x == tempcoord(m,s)%x .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
 
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
        end if
 
 
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!111
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     else if (pivoty .eqv. .true.) then
 
        do s= l+1,p-1,1
@@ -465,22 +439,18 @@ contains
              tempcoord(m,s)%x = modulo(protcoords(m,l)%x-dz1(s)-1,gridsize)+1
              tempcoord(m,s)%z = modulo(protcoords(m,l)%z+dx1(s)-1,gridsize)+1
           end do
-          do s = l+1,p-1,1
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(  protcoords(g,f)%x == tempcoord(m,s)%x.and. &
-                           protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
+
 
 
 
@@ -491,22 +461,19 @@ contains
              tempcoord(m,s)%x = modulo(protcoords(m,l)%x+dz1(s)-1,gridsize)+1
              tempcoord(m,s)%z = modulo(protcoords(m,l)%z-dx1(s)-1,gridsize)+1
           end do
-          do s = l+1,p-1,1   
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%x == tempcoord(m,s)%x .and. &
-                           protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
+
 
        else if (probs > (2.0/3) .and. probs <= (1.0)) then
 
@@ -516,23 +483,16 @@ contains
              tempcoord(m,s)%z = modulo(protcoords(m,l)%z-dz1(s)-1,gridsize)+1
           end do
 
-          do s = l+1,p-1,1   
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%x == tempcoord(m,s)%x .and. &
-                           protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
 
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
 
        end if
 
@@ -561,22 +521,16 @@ contains
              tempcoord(m,s)%y = modulo(protcoords(m,l)%y-dx1(s)-1,gridsize)+1
              tempcoord(m,s)%x = modulo(protcoords(m,l)%x+dy1(s)-1,gridsize)+1
           end do
-          do s = l+1,p-1,1
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(  protcoords(g,f)%y == tempcoord(m,s)%y.and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z .and. &
-                           protcoords(g,f)%x == tempcoord(m,s)%x) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
 
 
        else if (probs > (1.0/3) .and. probs <= (2.0/3)) then
@@ -586,22 +540,16 @@ contains
              tempcoord(m,s)%y = modulo(protcoords(m,l)%y+dx1(s)-1,gridsize)+1
              tempcoord(m,s)%x = modulo(protcoords(m,l)%x-dy1(s)-1,gridsize)+1
           end do
-          do s = l+1,p-1,1   
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z .and. &
-                           protcoords(g,f)%x == tempcoord(m,s)%x) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
 
 
 
@@ -613,22 +561,16 @@ contains
              tempcoord(m,s)%z = protcoords(m,s)%z
           end do
 
-          do s = l+1,p-1,1   
-             do g = 1,nprotein,1
-                do f = 1,maxlength,1
-                   if(g /= m .or. f <= l .or. f >= p) then
-                      if(protcoords(g,f)%y == tempcoord(m,s)%y .and. &
-                           protcoords(g,f)%z == tempcoord(m,s)%z .and. &
-                           protcoords(g,f)%x == tempcoord(m,s)%x) then
-                         crankcont = .false.
-                         goto 43
-                      else
-                         continue
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             crankcont = .false.
+             goto 43
+          end if
 
        end if
     end if
@@ -638,23 +580,18 @@ contains
     !end if
 
     deltaiso = 0
-    do s = l+1,p-1,1
-       do g = 1,maxlength,1
-          if(g <= l .or. g >= p) then
-             sumdebug = protcoords(m,s)%x - protcoords(m,g)%x + &
-                  protcoords(m,l)%y - protcoords(m,g)%y + protcoords(m,s)%z - protcoords(m,g)%z
-             if( modulo(sumdebug-isobond(m,s,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-             if(isobond(m,s,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-             if(sumdebug == 1.0) tempisobond = 1.0
-             if(sumdebug /= 1.0) tempisobond = 0.0
 
-          end if
+    str = l+1
+    fir = p-1
+    st = 1
+    fi = maxlength
+    !write(6,*) 'start crank'
+    !call deltae
 
-       end do
-    end do
+    !write(6,*) 'deltaiso',deltaiso
 
-    if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then
-
+98  if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+       totalenergy = totalenergy + deltaiso + deltaint
        do s = l+1,p-1,1
           protcoords(m,s)%x = tempcoord(m,s)%x
           protcoords(m,s)%y = tempcoord(m,s)%y
@@ -707,11 +644,23 @@ contains
     if (rightangle .eqv. .true.) then    
 
        deltax1 = protcoords(m,l+1)%x - protcoords(m,l)%x
+       if(deltax1 == gridsize-1.0) deltax1 = -1.0
+       if(deltax1 == 1.0-gridsize) deltax1 = 1.0
        deltax2 =protcoords(m,l-1)%x - protcoords(m,l)%x
+              if(deltax2 == gridsize-1.0) deltax2 = -1.0
+       if(deltax2 == 1.0-gridsize) deltax2 = 1.0
        deltay1=protcoords(m,l+1)%y - protcoords(m,l)%y
+              if(deltay1 == gridsize-1.0) deltay1 = -1.0
+       if(deltay1 == 1.0-gridsize) deltay1 = 1.0
        deltay2 =protcoords(m,l-1)%y - protcoords(m,l)%y
+              if(deltay2 == gridsize-1.0) deltay2 = -1.0
+       if(deltay2 == 1.0-gridsize) deltay2 = 1.0
        deltaz1 = protcoords(m,l+1)%z - protcoords(m,l)%z
+              if(deltaz1 == gridsize-1.0) deltaz1 = -1.0
+       if(deltaz1 == 1.0-gridsize) deltaz1 = 1.0
        deltaz2= protcoords(m,l-1)%z - protcoords(m,l)%z
+              if(deltaz2 == gridsize-1.0) deltaz2 = -1.0
+       if(deltaz2 == 1.0-gridsize) deltaz2 = 1.0
 
        di = 0
        dj = 0
@@ -723,48 +672,38 @@ contains
 
 
 
-       if (abs(di) <= 1 .or. abs(dj) <= 1 .or. abs(dk) <= 1) then
 
-          i = modulo(protcoords(m,l)%x+di-1,gridsize)+1
-          j = modulo(protcoords(m,l)%y+dj-1,gridsize)+1
-          k = modulo(protcoords(m,l)%z+dk-1,gridsize)+1
+          tempcoord(m,l)%x = modulo(protcoords(m,l)%x+di-1,gridsize)+1
+          tempcoord(m,l)%y = modulo(protcoords(m,l)%y+dj-1,gridsize)+1
+          tempcoord(m,l)%z = modulo(protcoords(m,l)%z+dk-1,gridsize)+1
 
-
-          do g = 1, nprotein,1
-             do f = 1,maxlength,1
-                if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
-                     .and. k == protcoords(g,f)%z) then
-
-                   rac = .false.
-                   goto 37              
-                else
-                   continue                
-                end if
-             end do
-          end do
-
-
-
+          proti = m
           deltaiso = 0
+          str = l
+          fir = l
+          st = 1
+          fi = maxlength
+          call overlap
 
-          do g = 1,maxlength,1
-             if(g /= l) then
-                sumdebug = i - protcoords(m,g)%x + &
-                     j - protcoords(m,g)%y + k - protcoords(m,g)%z
-                if( modulo(sumdebug-isobond(m,l,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-                if(isobond(m,l,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-                if(sumdebug == 1.0) tempisobond(m,l,g) = 1.0
-                if(sumdebug /= 1.0) tempisobond(m,l,g) = 0.0
-             end if
-          end do
+          if(overlapvar .eqv. .true.) then
 
-          if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then
-             protcoords(m,l)%x = i
-             protcoords(m,l)%y = j
-             protcoords(m,l)%z = k
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             rac = .false.
+             goto 37
+          end if
+
+
+
+98        if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+       totalenergy = totalenergy + deltaiso + deltaint             
+             protcoords(m,l)%x = tempcoord(m,l)%x
+             protcoords(m,l)%y = tempcoord(m,l)%y
+             protcoords(m,l)%z = tempcoord(m,l)%z
 
              do g = 1,maxlength,1
-                if(g /= l) then
+                if(g < l-2 .or. g > l+2) then
                    isobond(m,l,g) = tempisobond(m,l,g)
                 end if
              end do
@@ -776,7 +715,8 @@ contains
              goto 37
           end if
        end if
-    end if
+       
+
 37  if (rac .eqv. .false. .or. rightangle .eqv. .false.) then
 
        reject = reject + 1
@@ -805,12 +745,17 @@ contains
     !write(6,*) 'l =', l
     t = time + 1
 
+    proti = m
 
 
     if(l > maxlength/2) then
        !continue
        !else if (l == 1000) then
 
+       str = l+1
+       fir = maxlength
+       st = 1
+       fi = l
 
 
        do g = l+1,maxlength,1
@@ -836,22 +781,14 @@ contains
              tempcoord(m,b)%y = modulo(protcoords(m,l)%y + delx(b)-1,gridsize)+1
              tempcoord(m,b)%z = protcoords(m,b)%z
           end do
-          do b = l+1,maxlength,1
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   !if(f ==m .and. g > l) then
-                   !continue
-                   if (f /= m .or. g <= l) then
-                      if (tempcoord(m,b)%x  == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%y == protcoords(f,g)%y &
-                           .and. protcoords(m,b)%z == protcoords(f,g)%z) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
 
        else if (choose3 > 1.0/5 .and. choose3 <= 2.0/5) then
@@ -861,20 +798,16 @@ contains
              tempcoord(m,b)%z = protcoords(m,b)%z                    
           end do
 
-          do b = l+1,maxlength,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g <= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%y == protcoords(f,g)%y &
-                           .and. protcoords(m,b)%z == protcoords(f,g)%z) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+
+          if(overlapvar .eqv. .true.) then
+
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
 
        else if (choose3 > 2.0/5 .and. choose3 <= 3.0/5) then
@@ -884,20 +817,14 @@ contains
              tempcoord(m,b)%y = modulo(protcoords(m,l)%y - dely(b)-1,gridsize)+1
              tempcoord(m,b)%z = protcoords(m,b)%z
           end do
-          do b = l+1,maxlength,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g <= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%y == protcoords(f,g)%y &
-                           .and. protcoords(m,b)%z == protcoords(f,g)%z) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
 
        else if (choose3 > 3.0/5 .and. choose3 <= 4.0/5) then
@@ -907,20 +834,15 @@ contains
              tempcoord(m,b)%z = modulo(protcoords(m,l)%z + delx(b)-1,gridsize)+1
              tempcoord(m,b)%y = protcoords(m,b)%y    
           end do
-          do b = l+1,maxlength,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g <= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%z == protcoords(f,g)%z &
-                           .and. protcoords(m,b)%y == protcoords(f,g)%y) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
        else if (choose3 > 4.0/5 .and. choose3 <= 1.0) then
 
@@ -929,41 +851,26 @@ contains
              tempcoord(m,b)%z = modulo(protcoords(m,l)%z - delx(b)-1,gridsize)+1
              tempcoord(m,b)%y = protcoords(m,b)%y
           end do
-          do b = l+1,maxlength,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g <= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%z == protcoords(f,g)%z &
-                           .and. protcoords(m,b)%y == protcoords(f,g)%y) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 98
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
        end if
 
 
 
-       deltaiso = 0
-       do b = l+1,maxlength,1
-          do g = 1,l,1
 
-             sumdebug = protcoords(m,b)%x - protcoords(m,g)%x + &
-                  protcoords(m,b)%y - protcoords(m,g)%y + protcoords(m,b)%z - protcoords(m,g)%z
-             if( modulo(sumdebug-isobond(m,b,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-             if(isobond(m,b,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-             if(sumdebug == 1.0) tempisobond(m,b,g) = 1.0
-             if(sumdebug /= 1.0) tempisobond(m,b,g) = 0.0
-          end do
-       end do
-
-       if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then
+       !write(6,*) 'deltaiso', deltaiso
 
 
+98     if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+       totalenergy = totalenergy + deltaiso + deltaint
           do b = l+1,maxlength,1 
              protcoords(m,b)%x = tempcoord(m,b)%x
              protcoords(m,b)%y = tempcoord(m,b)%y
@@ -986,6 +893,10 @@ contains
     else if (l <= maxlength/2) then
        !continue
        !else if (l == 100000) then
+       str = 1
+       fir = l-1
+       st = l
+       fi =maxlength
        do g = 1,l-1,1
 
           delx(g) = protcoords(m,g)%x - protcoords(m,l)%x
@@ -1006,25 +917,21 @@ contains
        end do
        if (choose3 <= 1.0/5) then
 
+
           do b = 1,l-1,1 
              tempcoord(m,b)%x = modulo(protcoords(m,l)%x -dely(b)-1,gridsize)+1
              tempcoord(m,b)%y = modulo(protcoords(m,l)%y + delx(b)-1,gridsize)+1
              tempcoord(m,b)%z = protcoords(m,b)%z
           end do
-          do b = 1,l-1,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g >= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%y == protcoords(f,g)%y &
-                           .and. protcoords(m,b)%z == protcoords(f,g)%z) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 92
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
 
        else if (choose3 > 1.0/5 .and. choose3 <= 2.0/5) then 
@@ -1033,20 +940,16 @@ contains
              tempcoord(m,b)%y = modulo(protcoords(m,l)%y - delx(b)-1,gridsize)+1
              tempcoord(m,b)%z = protcoords(m,b)%z
           end do
-          do b = 1,l-1,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g >= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%y == protcoords(f,g)%y &
-                           .and. protcoords(m,b)%z == protcoords(f,g)%z) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 92
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
 
 
@@ -1056,20 +959,15 @@ contains
              tempcoord(m,b)%y = modulo(protcoords(m,l)%y - dely(b)-1,gridsize)+1
              tempcoord(m,b)%z = protcoords(m,b)%z
           end do
-          do b = 1,l-1,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g >= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%y == protcoords(f,g)%y &
-                           .and. protcoords(m,b)%z == protcoords(f,g)%z) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 92
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
 
        else if (choose3 > 3.0/5 .and. choose3 <= 4.0/5) then
@@ -1079,20 +977,14 @@ contains
              tempcoord(m,b)%y = protcoords(m,b)%y
           end do
 
-          do b = 1,l-1,1
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g >= l) then
-                      if( tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%z == protcoords(f,g)%z &
-                           .and. protcoords(m,b)%y == protcoords(f,g)%y) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 92
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
        else if (choose3 > 4.0/5 .and. choose3 <= 1.0) then
           do b = 1,l-1,1               
@@ -1100,46 +992,20 @@ contains
              tempcoord(m,b)%z = modulo(protcoords(m,l)%z - delx(b)-1,gridsize)+1
              tempcoord(m,b)%y = protcoords(m,b)%y
           end do
-
-
-          do b = 1,l-1,1 
-             do f = 1,nprotein,1
-                do g = 1,maxlength,1
-                   if (f /= m .or. g >= l) then
-                      if(tempcoord(m,b)%x == protcoords(f,g)%x .and. &
-                           tempcoord(m,b)%z == protcoords(f,g)%z &
-                           .and. protcoords(m,b)%y == protcoords(f,g)%y) then
-                         pivcont = .false.
-                         goto 75
-                      end if
-                   end if
-                end do
-             end do
-          end do
+          call overlap
+          if(overlapvar .eqv. .true.) then
+             call deltae
+             goto 92
+          else if(overlapvar .eqv. .false.) then
+             pivcont = .false.
+             goto 75
+          end if
 
        end if
 
-
-
-       deltaiso = 0
-       do b = 1,l-1,1
-          do g = l,maxlength,1
-
-             sumdebug = protcoords(m,b)%x - protcoords(m,g)%x + &
-                  protcoords(m,b)%y - protcoords(m,g)%y + protcoords(m,b)%z - protcoords(m,g)%z
-             if( modulo(sumdebug-isobond(m,b,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-             if(isobond(m,b,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-             if(sumdebug == 1.0) tempisobond(m,b,g) = 1.0
-             if(sumdebug /= 1.0) tempisobond(m,b,g) = 0.0  
-
-          end do
-       end do
-
-
-       if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then 
-
-
-
+92     if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+    !write(6,*) 'deltaiso', deltaiso
+       totalenergy = totalenergy + deltaiso + deltaint
           do b = 1,l-1,1
              protcoords(m,b)%x = tempcoord(m,b)%x
              protcoords(m,b)%y = tempcoord(m,b)%y
@@ -1169,13 +1035,23 @@ contains
     !perform reptation
     real :: choose,dxx,dyx,dzx,direc
     integer :: endchaincont,g1,g2,g3,g4,g5,g6
-    logical :: reptcont
+    logical :: energypass
+
+    !do m = 1,nprotein
+    !do l = 1,maxlength
+    !do f = 1,maxlength
+    !write(6,*) l,f,isobond(m,l,f)
+    !end do
+    !end do
+    !end do
 
     t = time + 1
     choose = ran2(seed) - 0.5
+    !write(6,*) 'choose', choose
     reptcont = .true.
     m =int(ran2(seed)*(nprotein-1))+1
-    c = m
+
+    proti = m
 
     g1 = 1
     g2 = 1
@@ -1186,14 +1062,15 @@ contains
     dx = 0.0
     dy = 0.0
     dz = 0.0
+
     if (choose > 0.0) then
-       dxx = protcoords(c,2)%x - protcoords(c,1)%x
+       dxx = protcoords(m,2)%x - protcoords(m,1)%x
        if (dxx > 1.5) dxx = -1.0
        if(dxx <-1.5) dxx = 1.0
-       dyx = protcoords(c,2)%y - protcoords(c,1)%y
+       dyx = protcoords(m,2)%y - protcoords(m,1)%y
        if (dyx > 1.5) dyx = -1.0
        if (dyx < -1.5) dyx = 1.0
-       dzx = protcoords(c,2)%z - protcoords(c,1)%z
+       dzx = protcoords(m,2)%z - protcoords(m,1)%z
        if (dzx > 1.5) dzx = -1.0
        if (dzx < -1.5) dzx = 1.0
 
@@ -1211,7 +1088,6 @@ contains
           dx = -1.0
        else if(direc <= (1.0*g1+g2+g3)/5 .and.direc > (1.0*g1+g2)/5 .and.  g3 == 1) then
           dy = 1.0
-
        else if(direc <= (1.0*g1+g2+g3+g4)/5 .and.direc > (1.0*g1+g2+g3)/5 .and.  g4 == 1) then
           dy = -1.0
        else if(direc <= (1.0*g1+g2+g3+g4+g5)/5 .and.direc > (1.0*g1+g2+g3+g4)/5 .and. &
@@ -1221,63 +1097,51 @@ contains
             direc > (1.0*g1+g2+g3+g4+g5)/5 .and.  g6 == 1) then
           dz = -1.0
        end if
+       !write(6,*) 'forwrd',dx,dy,dz
+       tempcoord(m,1)%x = modulo(protcoords(m,1)%x + dx-1,gridsize)+1
+       tempcoord(m,1)%y = modulo(protcoords(m,1)%y + dy-1,gridsize)+1
+       tempcoord(m,1)%z = modulo(protcoords(m,1)%z + dz-1,gridsize)+1
 
-       tempcoord(c,1)%x = modulo(protcoords(c,1)%x + dx-1,gridsize)+1
-       tempcoord(c,1)%y = modulo(protcoords(c,1)%y + dy-1,gridsize)+1
-       tempcoord(c,1)%z = modulo(protcoords(c,1)%z + dz-1,gridsize)+1
+       str = 1
+       fir = 1
+       st = 4
+       fi = maxlength -1
+       othere = maxlength
+       call overlap
+       if(overlapvar .eqv. .true.) then
+          call deltae
+         ! write(6,*) 'deltaiso', deltaiso
+          goto 92
+       else if(overlapvar .eqv. .false.) then
+          reptcont = .false.
+          goto 83
+       end if
 
+       write(6,*) 'pre'
+       !       call deltae
+       write(6,*) 'post'
 
-       do g = 1,nprotein,1
-          do f = 1,maxlength,1
-             if(protcoords(g,f)%x == tempcoord(c,1)%x .and. &
-                  protcoords(g,f)%y == tempcoord(c,1)%y .and. &
-                  protcoords(g,f)%z == tempcoord(c,1)%z) then
-
-                reptcont = .false.
-                goto 83
-             else
-                continue
-             end if
-          end do
-       end do
-
-       !if(reptcont .eqv. .true.) then
-
-
-       deltaiso = 0
-       do g = 2,maxlength,1
-
-          sumdebug = tempcoord(c,1)%x - protcoords(c,g)%x + &
-               tempcoord(c,1)%y - protcoords(c,g)%y + tempcoord(c,1)%z - protcoords(c,g)%z
-          if(modulo(sumdebug-isobond(c,1,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-          if(isobond(c,1,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-          if(sumdebug == 1.0) tempisobond(c,1,g) = 1.0
-          if(sumdebug /= 1.0) tempisobond(c,1,g) = 0.0      
-          deltaiso = deltaiso - isobond(c,maxlength,g)  
-       end do
-
-
-       if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then
-
+92     if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+       totalenergy = totalenergy + deltaiso + deltaint
+     !         write(6,*) 'deltaiso', deltaiso
           do l =maxlength,2,-1
-             protcoords(c,l)%x = protcoords(c,l-1)%x
-             protcoords(c,l)%y = protcoords(c,l-1)%y
-             protcoords(c,l)%z = protcoords(c,l-1)%z
+             protcoords(m,l)%x = protcoords(m,l-1)%x
+             protcoords(m,l)%y = protcoords(m,l-1)%y
+             protcoords(m,l)%z = protcoords(m,l-1)%z
 
-             do g = 1,maxlength,1
-                isobond(c,l,g) = isobond(c,l-1,g)
+             do g = maxlength,2,-1
+                isobond(m,l,g) = isobond(m,l-1,g)
              end do
-
              !successful = successful+1
           end do
 
-          !write(6,*) 'dx =', dx, 'dy =', dy, 'dz = ', dz
-          protcoords(c,1)%x = tempcoord(c,1)%x
-          protcoords(c,1)%y = tempcoord(c,1)%y
-          protcoords(c,1)%z = tempcoord(c,1)%z
+          !      write(6,*) 'dx =', dx, 'dy =', dy, 'dz = ', dz
+          protcoords(m,1)%x = tempcoord(m,1)%x
+          protcoords(m,1)%y = tempcoord(m,1)%y
+          protcoords(m,1)%z = tempcoord(m,1)%z
 
-          do g = 2,maxlength,1
-             isobond(c,1,g) = tempisobond(c,1,g)
+          do g = 4,maxlength-1,1
+             isobond(m,1,g) = tempisobond(m,1,g)
           end do
           !write(6,*) time, 'rept1'   
           successful = successful + 1
@@ -1290,13 +1154,13 @@ contains
     else if (choose < 0.0) then
 
 
-       dxx = protcoords(c,maxlength-1)%x - protcoords(c,maxlength)%x
+       dxx = protcoords(m,maxlength-1)%x - protcoords(m,maxlength)%x
        if (dxx > 1.5) dxx = -1.0
        if(dxx <-1.5) dxx = 1.0
-       dyx = protcoords(c,maxlength-1)%y - protcoords(c,maxlength)%y
+       dyx = protcoords(m,maxlength-1)%y - protcoords(m,maxlength)%y
        if (dyx > 1.5) dyx = -1.0
        if (dyx < -1.5) dyx = 1.0
-       dzx = protcoords(c,maxlength-1)%z - protcoords(c,maxlength)%z
+       dzx = protcoords(m,maxlength-1)%z - protcoords(m,maxlength)%z
        if (dzx > 1.5) dzx = -1.0
        if (dzx < -1.5) dzx = 1.0
 
@@ -1306,7 +1170,7 @@ contains
        if (dyx == -1.0) g4 = 0
        if (dzx == 1.0) g5 =0
        if (dzx == -1.0) g6 = 0
-
+       !write(6,*) 'success?', g1+g2+g3+g4+g5+g6
        direc = ran2(seed)
        if(direc <= (1.0*g1)/5 .and. g1 == 1) then
           dx = 1.0
@@ -1324,63 +1188,50 @@ contains
             direc > (1.0*g1+g2+g3+g4+g5)/5 .and.  g6 == 1) then
           dz = -1.0
        end if
-
-       tempcoord(c,maxlength)%x = modulo(protcoords(c,maxlength)%x + dx-1,gridsize)+1
-       tempcoord(c,maxlength)%y = modulo(protcoords(c,maxlength)%y + dy-1,gridsize)+1
-       tempcoord(c,maxlength)%z = modulo(protcoords(c,maxlength)%z + dz-1,gridsize)+1
-
-
-       do g = 1,nprotein,1
-          do f = 1,maxlength,1
-             if(protcoords(g,f)%x == tempcoord(c,maxlength)%x .and. &
-                  protcoords(g,f)%y == tempcoord(c,maxlength)%y .and. &
-                  protcoords(g,f)%z == tempcoord(c,maxlength)%z) then
-                reptcont = .false.
-
-                goto 83
-             else
-                continue
-             end if
-          end do
-       end do
-
-       !if(reptcont .eqv. .true.) then
-
-       deltaiso = 0
-       do g = 1,maxlength-1,1
-
-          sumdebug = tempcoord(c,maxlength)%x - protcoords(c,g)%x + &
-               tempcoord(c,maxlength)%y - protcoords(c,g)%y + tempcoord(c,maxlength)%z - protcoords(c,g)%z
-          if( modulo(sumdebug-isobond(c,maxlength,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-          if(isobond(c,maxlength,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-          if(sumdebug == 1.0) tempisobond(c,maxlength,g) = 1.0
-          if(sumdebug /= 1.0) tempisobond(c,maxlength,g) = 0.0   
+       !write(6,*) 'backward',dx,dy,dz
+       tempcoord(m,maxlength)%x = modulo(protcoords(m,maxlength)%x + dx-1,gridsize)+1
+       tempcoord(m,maxlength)%y = modulo(protcoords(m,maxlength)%y + dy-1,gridsize)+1
+       tempcoord(m,maxlength)%z = modulo(protcoords(m,maxlength)%z + dz-1,gridsize)+1
 
 
-       end do
+       str = maxlength
+       fir = maxlength
+       st = 2
+       fi = maxlength -3
+       othere = 1
+       call overlap
+       !       write(6,*) 'backward'
+       if(overlapvar .eqv. .true.) then
+          !write(6,*) 'survived overlap'
+          call deltae
+!          write(6,*) 'deltaiso', deltaiso
+          goto 98
+       else if(overlapvar .eqv. .false.) then
+          reptcont = .false.
+          goto 83
+       end if
 
-
-       if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then
-
+98     if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+                 totalenergy = totalenergy + deltaiso + deltaint
           do l =1,maxlength-1,1
-             protcoords(c,l)%x = protcoords(c,l+1)%x
-             protcoords(c,l)%y = protcoords(c,l+1)%y
-             protcoords(c,l)%z = protcoords(c,l+1)%z
+             protcoords(m,l)%x = protcoords(m,l+1)%x
+             protcoords(m,l)%y = protcoords(m,l+1)%y
+             protcoords(m,l)%z = protcoords(m,l+1)%z
 
-             do g = 1,maxlength,1
-                isobond(c,l,g) = isobond(c,l+1,g)
+             do g = 1,maxlength-1,1
+                isobond(m,l,g) = isobond(m,l+1,g)
              end do
 
           end do
 
           !write(6,*) 'dx =', dx, 'dy =', dy, 'dz =' , dz
 
-          protcoords(c,maxlength)%x = tempcoord(c,maxlength)%x
-          protcoords(c,maxlength)%y = tempcoord(c,maxlength)%y
-          protcoords(c,maxlength)%z = tempcoord(c,maxlength)%z
+          protcoords(m,maxlength)%x = tempcoord(m,maxlength)%x
+          protcoords(m,maxlength)%y = tempcoord(m,maxlength)%y
+          protcoords(m,maxlength)%z = tempcoord(m,maxlength)%z
 
-          do g = 1,maxlength-1,1
-             isobond(c,maxlength,g) = tempisobond(c,maxlength,g)
+          do g = 2,maxlength-3,1
+             isobond(m,maxlength,g) = tempisobond(m,maxlength,g)
           end do
 
           !write(6,*) time, 'rept 2'      
@@ -1410,7 +1261,7 @@ contains
     random = ran2(seed)
     choose2 = ran2(seed)-0.5
 
-
+    proti = m
     endcont = .true.
 
     if (choose2 >= 0.0) then
@@ -1441,34 +1292,26 @@ contains
     else if (random> 5.0/6 .AND. random<=1.0) then                
        k = modulo(k-2,gridsize)+1
     end if
-    do g = 1, nprotein,1
-       do f = 1,maxlength,1
-          if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
-               .and. k == protcoords(g,f)%z ) then
-             endcont = .false.
-             goto 71 
-          else
-             continue
-          end if
-       end do
-    end do
 
-    deltaiso = 0
+    tempcoord(m,l)%x = i
+    tempcoord(m,l)%y = j
+    tempcoord(m,l)%z = k
 
-    do g = 1,maxlength,1
-       if(g /= l) then
-          sumdebug = i - protcoords(m,g)%x + &
-               j - protcoords(m,g)%y + k - protcoords(m,g)%z
-          if( modulo(sumdebug-isobond(m,l,g),gridsize) == 1.0) deltaiso = deltaiso + 1
-          if(isobond(m,l,g)== 1.0 .and. modulo(sumdebug,gridsize) /= 1.0) deltaiso = deltaiso - 1
-          if(sumdebug == 1.0) tempisobond(m,l,g) = 1.0
-          if(sumdebug /= 1.0) tempisobond(m,l,g) = 0.0
-!write(6,*) deltaiso,l
-       end if
-    end do
+    str = l
+    fir = l
+    st = 4
+    fi = maxlength -1
+    call overlap
+    if(overlapvar .eqv. .true.) then
+       call deltae
+       goto 98
+    else if(overlapvar .eqv. .false.) then
+       endcont = .false.
+       goto 71
+    end if
 
-    if(deltaiso > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*deltaiso/kT))) then
-
+98  if(deltaiso + deltaint > 0.0 .or. ran2(seed) > (0.5*exp(-1.0*(deltaiso+deltaint)/kT))) then
+       totalenergy = totalenergy + deltaiso + deltaint
        protcoords(m,l)%x = i
        protcoords(m,l)%y = j
        protcoords(m,l)%z = k
@@ -1527,18 +1370,179 @@ contains
     end do
   end subroutine comfind
 
+  subroutine overlap
 
+    overlapvar = .true.
+    do ch1 = str,fir,1
+       do pr = 1,nprotein
+          do ch2 = 1,maxlength,1
+             if(ch2 < ch1 .or. ch2 > ch1 .or. pr /= proti) then
+                if(protcoords(pr,ch2)%x == tempcoord(proti,ch1)%x.and. &
+                     protcoords(pr,ch2)%y == tempcoord(proti,ch1)%y .and. &
+                     protcoords(pr,ch2)%z == tempcoord(proti,ch1)%z) then
+                   overlapvar = .false.
+                   goto 89
+                else                   
+                   continue
+                end if
+             end if
+          end do
+       end do
+    end do
+
+  
+    !write(6,*) 'no overlap'
+89  if(overlapvar .eqv. .false.) then
+       continue
+       !write(6,*) time,'overlap reject',ch1,ch2,protcoords(pr,ch2)%x,tempcoord(proti,ch1)%x
+       !reject = reject + 1
+    end if
+
+  end subroutine overlap
 
   subroutine energy
+    !logical :: energypass
+
+    initialenergy = 0.0
+    totalenergy = 0.0
     isoenergy = 0.0
     do m= 1,nprotein,1
        do l = 1,maxlength,1
           do f = 1,maxlength,1
-             isoenergy = isoenergy + isobond(m,l,f)
+
+             energypassx = .false.
+             energypassy = .false.
+             energypassz = .false.
+             dx = 4.0
+             dy = 4.0
+             dz = 4.0
+             isobond(m,l,f) = 0.0
+             if(f < l-2 .or. f > l + 2) then
+                !write(6,*) 'l',l,'f',f
+
+                if(abs(protcoords(m,l)%x - protcoords(m,f)%x) == 1.0 .or. abs(protcoords(m,l)%x - &
+                     protcoords(m,f)%x) == (gridsize - 1.0)) then
+                   dx = 1.0
+                   energypassx = .true.
+
+                else if(abs(protcoords(m,l)%x - protcoords(m,f)%x) == 0.0) then
+                   dx = 0.0
+                   energypassx = .true.
+                end if
+                !energypass = .false.
+                if(abs(protcoords(m,l)%y - protcoords(m,f)%y) == 1.0 .or.abs(protcoords(m,l)%y - &
+                     protcoords(m,f)%y) == (gridsize - 1.0)) then
+                   dy = 1.0
+                   energypassy = .true.
+                else if(abs(protcoords(m,l)%y - protcoords(m,f)%y) == 0.0) then
+                   dy = 0.0
+                   energypassy = .true.
+                end if
+                !energypass = .false.
+                if(abs(protcoords(m,l)%z - protcoords(m,f)%z) == 1.0 .or.abs(protcoords(m,l)%z &
+                     - protcoords(m,f)%z) == (gridsize -1.0)) then
+                   dz = 1.0
+                   energypassz = .true.
+                else if(abs(protcoords(m,l)%z - protcoords(m,f)%z) == 0.0) then
+                   dz = 0.0
+                   energypassz = .true.
+
+                end if
+                if(energypassx .eqv. .true. .and. energypassy .eqv. .true. .and. energypassz .eqv. .true.) then
+                   sumdebug = dx + dy + dz
+                   if(sumdebug == 1.0) then
+                      !      write(6,*) f,dx,dy,dz
+                      !write(6,*) l, protcoords(m,l)%x, protcoords(m,l)%y, protcoords(m,l)%z
+                      !write(6,*) f, protcoords(m,f)%x, protcoords(m,f)%y, protcoords(m,f)%z
+                      !      write(6,*) 'deltas', modulo(protcoords(m,l)%x - protcoords(m,f)%x,gridsize), &
+                      !           modulo(protcoords(m,l)%y - protcoords(m,f)%y,gridsize), modulo(protcoords(m,l)%z - protcoords(m,f)%z,gridsize)
+                      isobond(m,l,f) = 1.0
+                      initialenergy = initialenergy + 1.0
+                   else if(sumdebug /= 1.0) then
+                      isobond(m,l,f) = 0.0
+                   end if
+                else if(energypassx .eqv. .false. .or. energypassy .eqv. .false. .or. energypassz .eqv. .false. ) then
+                   isobond(m,l,f) = 0.0
+                end if
+
+
+             end if
+
+ !            write(6,*) m,l,f,isobond(m,l,f)
           end do
        end do
     end do
-    write(93,*) time,isoenergy
+
+!!!!!!! interatomic
+      do m= 1,nprotein,1
+    do g = 1,nprotein
+       do l = 1,maxlength,1
+          do f = 1,maxlength,1
+             if(g /=m) then
+             energypassx = .false.
+             energypassy = .false.
+             energypassz = .false.
+             dx = 4.0
+             dy = 4.0
+             dz = 4.0
+             intbond(g,m,l,f) = 0.0
+
+                !write(6,*) 'l',l,'f',f
+
+                if(abs(protcoords(m,l)%x - protcoords(g,f)%x) == 1.0 .or. abs(protcoords(m,l)%x - &
+                     protcoords(g,f)%x) == (gridsize - 1.0)) then
+                   dx = 1.0
+                   energypassx = .true.
+
+                else if(abs(protcoords(m,l)%x - protcoords(g,f)%x) == 0.0) then
+                   dx = 0.0
+                   energypassx = .true.
+                end if
+                !energypass = .false.
+                if(abs(protcoords(m,l)%y - protcoords(g,f)%y) == 1.0 .or.abs(protcoords(m,l)%y - &
+                     protcoords(g,f)%y) == (gridsize - 1.0)) then
+                   dy = 1.0
+                   energypassy = .true.
+                else if(abs(protcoords(m,l)%y - protcoords(g,f)%y) == 0.0) then
+                   dy = 0.0
+                   energypassy = .true.
+                end if
+                !energypass = .false.
+                if(abs(protcoords(m,l)%z - protcoords(g,f)%z) == 1.0 .or.abs(protcoords(m,l)%z &
+                     - protcoords(g,f)%z) == (gridsize -1.0)) then
+                   dz = 1.0
+                   energypassz = .true.
+                else if(abs(protcoords(m,l)%z - protcoords(g,f)%z) == 0.0) then
+                   dz = 0.0
+                   energypassz = .true.
+
+                end if
+                if(energypassx .eqv. .true. .and. energypassy .eqv. .true. .and. energypassz .eqv. .true.) then
+                   sumdebug = dx + dy + dz
+                   if(sumdebug == 1.0) then
+                      !      write(6,*) f,dx,dy,dz
+                      write(6,*) l, protcoords(m,l)%x, protcoords(m,l)%y, protcoords(m,l)%z
+                      write(6,*) f, protcoords(g,f)%x, protcoords(g,f)%y, protcoords(g,f)%z
+                      !      write(6,*) 'deltas', modulo(protcoords(m,l)%x - protcoords(m,f)%x,gridsize), &
+                      !           modulo(protcoords(m,l)%y - protcoords(m,f)%y,gridsize), modulo(protcoords(m,l)%z - protcoords(m,f)%z,gridsize)
+                      intbond(m,g,l,f) = 1.0
+                      initialenergy = initialenergy + 1.0
+                   else if(sumdebug /= 1.0) then
+                      intbond(m,g,l,f) = 0.0
+                   end if
+                else if(energypassx .eqv. .false. .or. energypassy .eqv. .false. .or. energypassz .eqv. .false. ) then
+                   intbond(m,g,l,f) = 0.0
+                end if
+
+
+
+!             write(6,*) m,g,l,f,intbond(m,g,l,f)
+             end if
+          end do
+       end do
+    end do
+    end do
+       write(93,*) time,initialenergy
   end subroutine energy
 
   subroutine radiusofgyration
@@ -1566,6 +1570,206 @@ contains
   end subroutine radiusofgyration
 
 
+  subroutine deltae
+
+    deltaiso = 0
+!write(6,*) 'proti',proti
+    !do pr = 1,nprotein
+       do ch1 = str,fir,1
+          do ch2 = st,fi,1
+
+             energypassx = .false.
+             energypassy = .false.
+             energypassz = .false.
+             dx = 4.0
+             dy = 4.0
+             dz = 4.0
+
+             if(ch2 < ch1-2 .or. ch2 > ch1 + 2) then
+
+
+                if(abs(tempcoord(proti,ch1)%x - protcoords(pr,ch2)%x) == 1.0 .or. abs(tempcoord(proti,ch1)%x - &
+                     protcoords(pr,ch2)%x) == (gridsize - 1.0)) then
+                   dx = 1.0
+                   energypassx = .true.
+
+                else if(abs(tempcoord(proti,ch1)%x - protcoords(pr,ch2)%x) == 0.0) then
+                   dx = 0.0
+                   energypassx = .true.
+                end if
+                !energypass = .false.
+                if(abs(tempcoord(proti,ch1)%y - protcoords(pr,ch2)%y) == 1.0 .or.abs(tempcoord(proti,ch1)%y - &
+                     protcoords(pr,ch2)%y) == (gridsize - 1.0)) then
+                   dy = 1.0
+                   energypassy = .true.
+                else if(abs(tempcoord(pr,ch1)%y - protcoords(pr,ch2)%y) == 0.0) then
+                   dy = 0.0
+                   energypassy = .true.
+                end if
+                !energypass = .false.
+                if(abs(tempcoord(proti,ch1)%z - protcoords(pr,ch2)%z) == 1.0 .or.abs(tempcoord(proti,ch1)%z &
+                     - protcoords(pr,ch2)%z) == (gridsize -1.0)) then
+                   dz = 1.0
+                   energypassz = .true.
+                else if(abs(tempcoord(proti,ch1)%z - protcoords(pr,ch2)%z) == 0.0) then
+                   dz = 0.0
+                   energypassz = .true.
+
+                end if
+                if(energypassx .eqv. .true. .and. energypassy .eqv. .true. .and. energypassz .eqv. .true.) then
+                   sumdebug = dx + dy + dz
+                   if(sumdebug == 1.0) then
+                      tempisobond(pr,ch1,ch2) = 1.0
+                      if(isobond(pr,ch1,ch2) == 0) deltaiso = deltaiso + 1
+                   end if
+
+                else if(sumdebug /= 1.0) then
+                   tempisobond(pr,ch1,ch2) = 0.0
+                end if
+             else if(energypassx .eqv. .false. .or. energypassy .eqv. .false. .or. energypassz .eqv. .false. ) then
+                tempisobond(pr,ch1,ch2) = 0.0
+             end if
+
+             if(tempisobond(pr,ch1,ch2) == 0.0 .and. isobond(pr,ch1,ch2) == 1.0) deltaiso = deltaiso - 1
+
+             !write(6,*) 'isobond',isobond(pr,ch1,ch2)
+             !write(6,*) 'tempisobond',tempisobond(pr,ch1,ch2)
+
+          end do
+       end do
+    !end do
+
+    if(reptcont .eqv. .true.) then
+       deltaiso = 0
+          do ch1 = str,fir,1
+             do ch2 = st,fi,1
+                if(tempisobond(proti,ch1,ch2) == 1.0) deltaiso = deltaiso +1
+!                write(6,*) 'tempisobond', tempisobond(proti,ch1,ch2)
+          end do
+       end do
+
+       if(othere == 1) then
+          do ch2 = 4,maxlength-1,1
+ !            write(6,*) 'isobond one', isobond(proti,othere,ch2)
+             if(isobond(proti,othere,ch2) == 1.0) deltaiso = deltaiso - 1
+          end do
+       else if(othere == maxlength) then
+          do ch2 = 2,maxlength-3,1
+  !           write(6,*) 'isobond maxlength', isobond(proti,othere,ch2)
+             if(isobond(proti,othere,ch2) == 1.0) deltaiso = deltaiso - 1
+          end do
+       end if
+    end if
+!    write(6,*) 'deltaiso deltae', deltaiso
+
+    call deltainter
+  end subroutine deltae
+
+
+ subroutine deltainter
+
+    deltaint = 0
+!write(6,*) 'proti',proti
+
+    do ch1 = str,fir,1
+           do pr = 1,nprotein
+       if(pr /= proti) then
+          do ch2 = 1,maxlength
+
+             energypassx = .false.
+             energypassy = .false.
+             energypassz = .false.
+             dx = 4.0
+             dy = 4.0
+             dz = 4.0
+
+           
+
+                if(abs(tempcoord(proti,ch1)%x - protcoords(pr,ch2)%x) == 1.0 .or. abs(tempcoord(proti,ch1)%x - &
+                     protcoords(pr,ch2)%x) == (gridsize - 1.0)) then
+                   dx = 1.0
+                   energypassx = .true.
+
+                else if(abs(tempcoord(proti,ch1)%x - protcoords(pr,ch2)%x) == 0.0) then
+                   dx = 0.0
+                   energypassx = .true.
+                end if
+                !energypass = .false.
+                if(abs(tempcoord(proti,ch1)%y - protcoords(pr,ch2)%y) == 1.0 .or.abs(tempcoord(proti,ch1)%y - &
+                     protcoords(pr,ch2)%y) == (gridsize - 1.0)) then
+                   dy = 1.0
+                   energypassy = .true.
+                else if(abs(tempcoord(pr,ch1)%y - protcoords(pr,ch2)%y) == 0.0) then
+                   dy = 0.0
+                   energypassy = .true.
+                end if
+                !energypass = .false.
+                if(abs(tempcoord(proti,ch1)%z - protcoords(pr,ch2)%z) == 1.0 .or.abs(tempcoord(proti,ch1)%z &
+                     - protcoords(pr,ch2)%z) == (gridsize -1.0)) then
+                   dz = 1.0
+                   energypassz = .true.
+                else if(abs(tempcoord(proti,ch1)%z - protcoords(pr,ch2)%z) == 0.0) then
+                   dz = 0.0
+                   energypassz = .true.
+
+                end if
+                if(energypassx .eqv. .true. .and. energypassy .eqv. .true. .and. energypassz .eqv. .true.) then
+                   sumdebug = dx + dy + dz
+                   if(sumdebug == 1.0) then
+                      tempintbond(proti,pr,ch1,ch2) = 1.0
+                      if(intbond(proti,pr,ch1,ch2) == 0) deltaint = deltaint + 1
+                 
+                else if(sumdebug /= 1.0) then
+                   tempintbond(proti,pr,ch1,ch2) = 0.0
+                end if
+             else if(energypassx .eqv. .false. .or. energypassy .eqv. .false. .or. energypassz .eqv. .false. ) then
+                tempintbond(proti,pr,ch1,ch2) = 0.0
+             end if
+
+             if(tempintbond(proti,pr,ch1,ch2) == 0.0 .and. intbond(proti,pr,ch1,ch2) == 1.0) deltaint = deltaint - 1
+          end do
+       end if
+       end do
+    end do
+
+    if(reptcont .eqv. .true.) then
+       deltaint = 0
+          do ch1 = str,fir,1
+       do pr = 1,nprotein,1
+          if(pr /=proti) then
+             do ch2 = st,fi,1
+                if(tempintbond(proti,pr,ch1,ch2) == 1.0) deltaint = deltaint +1
+!                write(6,*) 'tempisobond', tempisobond(proti,ch1,ch2)
+             end do
+          end if
+       end do
+end do
+if(othere == 1) then
+      do pr = 1,nprotein,1
+      if(pr /= proti) then
+          do ch2 = 4,maxlength-1,1
+ !            write(6,*) 'isobond one', isobond(proti,othere,ch2)
+             if(intbond(proti,pr,othere,ch2) == 1.0) deltaint = deltaint - 1
+          end do
+       end if
+       end do
+       else if(othere == maxlength) then
+             do pr = 1,nprotein,1
+      if(pr /= proti) then
+          do ch2 = 2,maxlength-3,1
+  !           write(6,*) 'isobond maxlength', isobond(proti,othere,ch2)
+             if(intbond(proti,pr,othere,ch2) == 1.0) deltaint = deltaint - 1
+          end do
+       end if
+    end do
+    end if
+    end if
+ !   write(6,*) 'deltaint delint', deltaint
+
+  end subroutine deltainter
+
+
+  
 
   subroutine rms
     real :: msdsum,totmsderror,msd
@@ -1628,7 +1832,7 @@ contains
           !write(19,*) l, protcoords(t,m,l)%x, protcoords(t,m,l)%y, &
           !    protcoords(t,m,l)%z
           !do g = 1,maxlength,1
-             !write(72,*) m,l,g,isobond(m,l,g)
+          !write(72,*) m,l,g,isobond(m,l,g)
           !end do
        end do
     end do
@@ -1765,22 +1969,49 @@ contains
                       if (protcoords(m,l)%x == 0.0) write(6,*) 'x fail',l
                       if (protcoords(m,l)%y == 0.0) write(6,*) 'y fail',l
                       if (protcoords(m,l)%z == 0.0) write(6,*) 'z fail',l
-
-                      !write(6,*) 'FAILLLLLLLLLLLLLLLLLL'
+                      write(6,*) 'FAILLLLLLLLLLLLLLLLLL'
                    end if
                 end if
+             end do
+             end do
+                
                 if(l>1) then
-                   sumdebug = abs(protcoords(m,l)%x - protcoords(m,l-1)%x) + &
-                        abs(protcoords(m,l)%y - protcoords(m,l-1)%y) + abs(protcoords(m,l)%z - protcoords(m,l-1)%z)
-                   if(sumdebug /= 1.0 .and. sumdebug /= gridsize-1.0) then
-                      !write(6,*) 'SPLIT'
+
+
+                 
+   
+
+                !write(6,*) 'l',l,'f',f
+
+                if(abs(protcoords(m,l)%x - protcoords(m,l-1)%x) == 1.0 .or. abs(protcoords(m,l)%x - &
+                     protcoords(m,l-1)%x) == (gridsize - 1.0)) then
+                   dx = 1.0
+                else if(abs(protcoords(m,l)%x - protcoords(m,l-1)%x) == 0.0) then
+                   dx = 0.0
+                end if
+                !energypass = .false.
+                if(abs(protcoords(m,l)%y - protcoords(m,l-1)%y) == 1.0 .or.abs(protcoords(m,l)%y - &
+                     protcoords(m,l-1)%y) == (gridsize - 1.0)) then
+                   dy = 1.0
+                                else if(abs(protcoords(m,l)%y - protcoords(m,l-1)%y) == 0.0) then
+                   dy = 0.0
+                                end if
+                !energypass = .false.
+                if(abs(protcoords(m,l)%z - protcoords(m,l-1)%z) == 1.0 .or.abs(protcoords(m,l)%z &
+                     - protcoords(m,l-1)%z) == (gridsize -1.0)) then
+                   dz = 1.0
+                else if(abs(protcoords(m,l)%z - protcoords(m,l-1)%z) == 0.0) then
+                   dz = 0.0
+                end if
+                   sumdebug = dx + dy + dz
+                   if(sumdebug /= 1.0) then
+                      write(6,*) 'SPLIT'
                       finalfail = .true.
                    end if
                 end if
              end do
           end do
-       end do
-    end do
+
 
 
   end subroutine debug
