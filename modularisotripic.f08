@@ -1,67 +1,54 @@
 program move
   implicit none
 
-
-  integer :: maxno,protno,seed,natoms,maxsize,maxtime,reptbackward,reptforward,equilib
-  double precision ::totrmsbrute,randomz,msd
-  real :: intraenergy,interenergy,totalenergy
-  integer :: gridsize,deltax1,deltax2,dx,dy,dz,deltay1,deltay2,deltaz1,deltaz2
-  integer :: control,debugging,count
-  integer :: nprotein,time
-  integer :: maxlength,g,xl,yl,zl,t,r,N
-  real, external :: ran2
-  logical ::run2,exist,fail,finalfail
-  double precision :: totdisp,totchainlength,avechainlength,probs,comx,comy,comz,totrmserror
+  double precision :: intraenergy,interenergy,totalenergy,kT,totrmsbrute,randomz,msd
+  double precision :: totdisp,totchainlength,avechainlength,probs,totrmserror
   double precision :: actualchainlength,totvar,deviate,totdeviate,varian,separation,lengthvar,random
-  real,dimension(:),allocatable :: variance,disp,rmserror
-  !integer,dimension(:),allocatable :: dxtot,dytot,dztot,dx1,dy1,dz1
-  integer :: gate,xbk,ybk,zbk,protpass,f,scan
-  integer :: cont1,cont2,cont3,cont4,totcont,successful,reject
-  character(len = 10) :: commandread,commandread2,comread3,comread4,comread5,comread6,comread7,comread8,comread9,comread10,comread11
   double precision :: runningaveROG,runningaveEtE,chainlength,sumdebug
-  !real :: testlength,testtotlength
-  integer :: piv,right,end,crank,rept,isoenergy,deltaiso,isocount,datayes,deltaint
+  integer :: piv,right,end,crank,rept,isocount,datayes
+  integer :: gridsize,maxlength,t,N,nprotein,time,debugging,count
+  integer :: maxno,protno,seed,natoms,maxsize,maxtime,reptbackward,reptforward,equilib
+  integer :: totcont,successful,reject
+  character(len = 10) :: commandread,commandread2,comread3,comread4,comread5
+  character(len = 10) ::  comread6,comread7,comread8,comread9,comread10,comread11,comread12
   integer,dimension(:,:,:), allocatable :: isobond
   integer,dimension(:,:,:,:),allocatable :: intbond
-  double precision :: kT
-  character(len = 10) :: comread12
-  logical :: energypassx,energypassy,energypassz,overlapvar
+  real, external :: ran2
+  real,dimension(:),allocatable :: variance,disp,rmserror
+  logical :: exist,fail,finalfail
+
+
+  !To do list
+  !check energy counting routine
+  !check energy running count
 
 
   type protein
      integer :: x,y,z
   end type protein
-    type centremass
-       real :: x,y,z
+
+  type centremass
+     real :: x,y,z
   end type centremass
- !type(protein),dimension(:),allocatable :: tempcoord
+
   type(protein),dimension(:,:),allocatable :: protcoords
   type(centremass),dimension(:,:),allocatable :: com
-
 
   open(17, file = 'setup2.txt', action = 'read')
   open(23, file = 'initialtake2.xyz', action = 'read')
   open(29, file = 'rms.dat', action = 'write')
-  !open(31, file = 'chainlength.dat', action = 'write')
-  !open(51, file = 'bonds.dat', action = 'write')
   open(91, file = 'avechainlength.dat', action = 'write')
   open(97, file = 'radiusofgyration.dat', action = 'write')
-  !open(77, file = 'logmsd.dat', action = 'write')
   open(79, file = 'runningave.dat', action = 'write')
-  !open(99, file = 'deltas.dat', action = 'write')
-  !open(93, file = 'temporarycoord.dat', action = 'write')
   open(93, file = 'energy.dat', action = 'write')
-  !open(72, file = 'bonddata.dat', action = 'write')
 
-
-  !sort out end moves, pivot, right and crank
   reptforward = 0
   reptbackward = 0
   totrmsbrute = 0.0d0
+  totalenergy = 0.0d0
   runningaveROG = 0.0d0
   runningaveEtE = 0.0d0
   finalfail = .false.
-
 
   !kT = 50.0
   successful = 0
@@ -94,28 +81,17 @@ program move
 
   write(6,*) 'kT =', kT
 
-  !reads in seed from commandline
-
-
   if (datayes == 1) open(67, file = 'move.xyz', action = 'write')
-  N = maxlength
   allocate(protcoords(nprotein,maxlength))
   allocate(com(maxtime+1,nprotein))
-  !allocate(chainlength(nprotein))
   allocate(variance(nprotein))
   allocate(disp(maxtime))
-  !allocate(dx1(maxlength))
-  !allocate(dy1(maxlength))
-  !allocate(dz1(maxlength))
   allocate(isobond(nprotein,maxlength,maxlength))
   allocate(intbond(nprotein,nprotein,maxlength,maxlength))
 
-
-
-   
-  
-  interenergy = -1.0 !-1.0d0
-  intraenergy = -1.0 !-1.0d0
+  N = maxlength
+  interenergy =  -10.0 !-1.0 !-1.0d0
+  intraenergy = -1.0  !-1.0 !-1.0d0
 
   count = 0
   time = 0
@@ -130,10 +106,11 @@ program move
      fail = .false.
      if (mod(time,100) == 0 .and. datayes == 1) then
         call dataout
+        call bondcheck
      end if
      call positioning
      call comfind
-     write(93,*) time,totalenergy
+     if(modulo(time,10) == 0) write(93,*) time,totalenergy/2
      if (time > equilib) then
         call rms
      end if
@@ -149,7 +126,6 @@ program move
         continue
      end if
 
-     !write(6,*) 'g'
      if (fail .eqv. .true.) then
         write(6,*) 'step= ', time, 'FAIL'
      else if(modulo(time,100) == 0) then
@@ -211,28 +187,18 @@ contains
     do m = 1,nprotein,1
        do l = 1,maxlength,1
           read(23,*) BIN, protcoords(m,l)%x, protcoords(m,l)%y, protcoords(m,l)%z
-          !write(67,*) 'C', 2*protcoords(m,l)%x, 2*protcoords(m,l)%y, &
-          !2*protcoords(m,l)%z
-          !write(6,*) protcoords(m,l)%x
        end do
     end do
-    isocount = 0
-    write(6,*) 'a'
+
     call energy
     call debug
-    write(6,*) 'b'
-    isoenergy = isocount
-    
-
   end subroutine foundation
 
-
-
-
   subroutine positioning
-    integer :: contchoose,a1,a2,a3,a4,nmoves,count
+    !Selects move to be carried out on the proteins
+    integer :: a1,a2,a3,a4,nmoves,scan
     logical :: run,run2
-     
+
     t = time + 1
     do scan = 1,nprotein*maxlength,1
        count = count + 1
@@ -245,15 +211,12 @@ contains
        if (randomz <= (1.0*end)/ nmoves .and. end == 1) then
           !write(6,*) 'end' 
           call endmove
-
        else if (randomz > (1.0*end)/nmoves .and. randomz <= (1.0*end+crank)/nmoves .and. crank == 1) then
-           !write(6,*) 'crank' 
+          !write(6,*) 'crank' 
           call crankshaftmove
-
        else if (randomz > (1.0*end + crank)/nmoves .and. randomz <= (1.0*end + crank + right)/nmoves .and. right ==1) then
-           !write(6,*) 'right' 
+          !write(6,*) 'right' 
           call rightanglemove
-
        else if (randomz > (1.0*end + crank + right)/nmoves .and. randomz <= (1.0*end + crank + right + rept)/nmoves &
             .and. rept ==1) then
           !write(6,*) 'reptation' 
@@ -262,39 +225,33 @@ contains
             .and. piv == 1) then 
           !write(6,*) 'pivot' 
           call pivot
-
        end if
     end do
   end subroutine positioning
 
   logical Function Energydecision(denergy)
     double precision, intent(in) :: denergy
-    
-    if(denergy < 0) then
+    if(denergy < 0.0) then
        Energydecision = .True.
     else if(exp(-denergy/kT) > ran2(seed)) then
        Energydecision = .True.
     else
        Energydecision = .False.
     end if
-
   end Function Energydecision
 
   subroutine crankshaftmove
-    !performs crankshaft move
+    !performs crankshaft move on section of chain around axis which the section lies upon
     logical :: crankcont,cranksep,overlapvar,pivotx,pivoty,pivotz
     double precision :: dummy,dummy2,deltaenergy
     integer :: p,s,m,l,g,dx11,dx12,dy11,dy12,dz11,dz12,str,st,pr,ch1,ch2
     integer,dimension(:),allocatable::dx1,dy1,dz1
-       type(protein),dimension(:),allocatable :: tempcoord
- integer,dimension(:,:), allocatable :: tempisobond
+    type(protein),dimension(:),allocatable :: tempcoord
+    integer,dimension(:,:), allocatable :: tempisobond
     integer,dimension(:,:,:),allocatable :: tempintbond
-      allocate(tempisobond(maxlength,maxlength))
-  allocate(tempintbond(nprotein,maxlength,maxlength))
-
-  allocate(tempcoord(maxlength))
-
-
+    allocate(tempisobond(maxlength,maxlength))
+    allocate(tempintbond(nprotein,maxlength,maxlength))
+    allocate(tempcoord(maxlength))
     allocate(dx1(maxlength))
     allocate(dy1(maxlength))
     allocate(dz1(maxlength))
@@ -306,14 +263,12 @@ contains
 71  if(cranksep .eqv. .true.) then
        continue
     end if
-
-
-
+!following section ensures p is at least 3 beads away from l and that p is greater than l
     dummy = int(ran2(seed)*(maxlength-1))+1
     dummy2 = int(ran2(seed)*(maxlength-1))+1
     l = min(dummy,dummy2)
     p = max(dummy,dummy2)
-    if (p-l <= 3) then
+    if (p-l < 3) then
        goto 71
     end if
 
@@ -337,8 +292,6 @@ contains
        pivotz = .true.
     end if
 
-    !pivotz = .false.
-    !pivoty = .false.
 
     if (pivotx .eqv. .false. .and. pivoty .eqv. .false. .and. pivotz .eqv. .false.) then
        crankcont = .false.
@@ -361,8 +314,6 @@ contains
           if(dz1(s) < -gridsize/2) dz1(s) = dz1(s) + gridsize
 
        end do
-
-
 
        if (probs <= (1.0/3)) then
           do s = l+1,p-1,1
@@ -389,7 +340,6 @@ contains
 
        end if
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     else if (pivoty .eqv. .true.) then
 
        do s= l+1,p-1,1
@@ -471,7 +421,7 @@ contains
     !crankcont = .false.
     !end if
 
-    deltaiso = 0    
+    deltaenergy = 0.0d0    
     !pr = m
 
     do str = l+1,p-1,1
@@ -490,34 +440,43 @@ contains
           do str = l+1,p-1,1
              do st = 1,maxlength,1
                 if(overlaps(pr,str,st,tempcoord) .eqv. .false.) then
-                      crankcont = .false.
-                      goto 43
-                   end if
+                   crankcont = .false.
+                   goto 43
+                end if
              end do
           end do
        end if
     end do
-
-
 
     do str = l+1,p-1
        do st = 1,l,1
-          if(st < str-2 .or. st > str + 2) then
-             if(isobond(m,str,st) == 1.0) deltaenergy = deltaenergy - intraenergy
-             if(adjacent(m,m,str,st,tempcoord) .eqv. .true.) then
-                deltaenergy = deltaenergy + intraenergy
-                tempisobond(str,st) = 1.0
+          if(st < str-2) then
+             if(isobond(m,str,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
+             if(adjacent(m,str,st,tempcoord) .eqv. .true.) then
+                deltaenergy = deltaenergy + (2*intraenergy)
+                tempisobond(str,st) = 1
+                !tempisobond(st,str) = 1
+             else
+                tempisobond(str,st) = 0
+                !tempisobond(st,str) = 0
              end if
           end if
        end do
     end do
+
     do str = l+1,p-1
        do st = p,maxlength,1
-          if(st < str-2 .or. st > str + 2) then
-             if(isobond(m,str,st) == 1.0) deltaenergy = deltaenergy - intraenergy
-             if(adjacent(m,m,str,st,tempcoord) .eqv. .true.) then
-                deltaenergy = deltaenergy + intraenergy
-                tempisobond(str,st) = 1.0
+          if(st > str + 2) then
+             if(isobond(m,str,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
+             !write(6,*) deltaenergy
+             if(adjacent(m,str,st,tempcoord) .eqv. .true.) then
+                !write(6,*) deltaenergy
+                deltaenergy = deltaenergy + (2*intraenergy)
+                tempisobond(str,st) = 1
+                !tempisobond(st,str) = 1
+             else
+                tempisobond(str,st) = 0
+                !tempisobond(st,str) = 0
              end if
           end if
        end do
@@ -525,40 +484,32 @@ contains
 
     do pr = 1,nprotein
        if(pr /= m) then
-          do str = 1,l
+          !write(6,*) 'fail crank'
+          do str = l+1,p-1
              do st = 1,maxlength
-                if(intbond(m,pr,str,st) == 1.0) deltaenergy = deltaenergy - interenergy
-                if(adjacent(m,pr,str,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + interenergy
-                   tempintbond(pr,str,st) = 1.0
+                if(intbond(m,pr,str,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+                !write(6,*) deltaenergy
+                if(adjacent(pr,str,st,tempcoord) .eqv. .true.) then
+                   deltaenergy = deltaenergy + (2*interenergy)
+                   !write(6,*) deltaenergy
+                   tempintbond(pr,str,st) = 1
+                else
+                   tempintbond(pr,str,st) = 0                   
                 end if
              end do
           end do
        end if
     end do
-
-    do pr = 1,nprotein
-       if(pr /= m) then
-          do str = p,maxlength,1
-             do st = 1,maxlength
-                if(intbond(m,pr,str,st) == 1.0) deltaenergy = deltaenergy - interenergy
-                if(adjacent(m,pr,str,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + interenergy
-                   tempintbond(pr,str,st) = 1.0
-                end if
-             end do
-          end do
-       end if
-    end do
-
-
-if(Energydecision(deltaenergy) .eqv. .True.) then
-       totalenergy = totalenergy + deltaenergy 
+    !write(6,*) deltaenergy
+    if(Energydecision(deltaenergy) .eqv. .True.) then
+       !write(6,*) totalenergy, deltaenergy
+       totalenergy = totalenergy + deltaenergy
+       !write(6,*) totalenergy
+       !write(6,*) 'm', m
        call updatepos(m,l+1,p-1,tempcoord)
-   call updateintrabond(m,l+1,p-1,1,l,tempisobond)
-   call updateintrabond(m,l+1,p-1,p,maxlength,tempisobond)
-   call updateinterbond(m,l+1,p-1,tempintbond)
-
+       call updateintrabond(m,l+1,p-1,1,l,tempisobond)
+       call updateintrabond(m,l+1,p-1,p,maxlength,tempisobond)
+       call updateinterbond(m,l+1,p-1,tempintbond)
     else 
        crankcont = .false.
        goto 43
@@ -573,21 +524,19 @@ if(Energydecision(deltaenergy) .eqv. .True.) then
 
   end subroutine crankshaftmove
 
-  
-
   subroutine rightanglemove
+        !performs a diagonal flip on a bead that has its two connecting beads perpendicular to each other
     integer :: m,l,deltax1,deltax2,deltay1,deltay2,deltaz1,deltaz2,dx,dy,dz,ch1,ch2
     double precision :: deltaenergy
     logical :: rac,overlapvar
     integer:: str,st,pr
     type(protein),dimension(:),allocatable :: tempcoord
-integer,dimension(:,:), allocatable :: tempisobond
+    integer,dimension(:,:), allocatable :: tempisobond
     integer,dimension(:,:,:),allocatable :: tempintbond
-      allocate(tempisobond(maxlength,maxlength))
-  allocate(tempintbond(nprotein,maxlength,maxlength))
-  allocate(tempcoord(maxlength))
+    allocate(tempisobond(maxlength,maxlength))
+    allocate(tempintbond(nprotein,maxlength,maxlength))
+    allocate(tempcoord(maxlength))
 
-    !performs a 180 flip on an atoms
 
     m =int(ran2(seed)*(nprotein))+1
     ! l cannot be equal to 1 or maxlength
@@ -640,7 +589,7 @@ integer,dimension(:,:), allocatable :: tempisobond
        tempcoord(l)%y = modulo(protcoords(m,l)%y+dy-1,gridsize)+1
        tempcoord(l)%z = modulo(protcoords(m,l)%z+dz-1,gridsize)+1
 
-       deltaiso = 0        
+       deltaenergy = 0.0d0        
        do st = 1,maxlength,1
           if(st /=l) then
              if(overlaps(m,l,st,tempcoord) .eqv. .false.) then
@@ -663,35 +612,44 @@ integer,dimension(:,:), allocatable :: tempisobond
 
        do st = 1,maxlength,1
           if(st < l-2 .or. st > l + 2) then
-             if(isobond(m,l,st) == 1.0) deltaenergy = deltaenergy - intraenergy
-             if(adjacent(m,m,l,st,tempcoord) .eqv. .true.) then
-                deltaenergy = deltaenergy + intraenergy
-                tempisobond(l,st) = 1.0
+             if(isobond(m,l,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
+             if(adjacent(m,l,st,tempcoord) .eqv. .true.) then
+                deltaenergy = deltaenergy + (2*intraenergy)
+                tempisobond(l,st) = 1
+                !tempisobond(st,l) = 1
+             else
+                tempisobond(l,st) = 0
+                !tempisobond(st,l) = 0
              end if
           end if
        end do
 
        do pr = 1,nprotein
           if(pr /= m) then
+             !write(6,*) 'fail right'
              do st = 1,maxlength,1
-                if(intbond(m,pr,l,st) == 1.0) deltaenergy = deltaenergy - interenergy
-                if(adjacent(m,pr,l,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + interenergy
-                   tempintbond(pr,l,st) = 1.0
+                if(intbond(m,pr,l,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+                if(adjacent(pr,l,st,tempcoord) .eqv. .true.) then
+                   deltaenergy = deltaenergy + (2*interenergy)
+                   tempintbond(pr,l,st) = 1
+                else
+                   tempintbond(pr,l,st) = 0
                 end if
              end do
           end if
        end do
 
-if(Energydecision(deltaenergy) .eqv. .true.) then
+       !write(6,*) 'deltaenergy =', deltaenergy
+       if(Energydecision(deltaenergy) .eqv. .true.) then
+          !write(6,*) totalenergy, deltaenergy
           totalenergy = totalenergy + deltaenergy
-
+          !write(6,*) totalenergy
           call updatepos(m,l,l,tempcoord)
           call updateintrabond(m,l,l,1,l-3,tempisobond)
           call updateintrabond(m,l,l,l+3,maxlength,tempisobond)
+          !call updateintrabond(m,1,l-3,l,l,tempisobond)
+          !call updateintrabond(m,l+3,maxlength,l,l,tempisobond)
           call updateinterbond(m,l,l,tempintbond)
-
-          !    write(6,*) time, 'rigth'
           successful = successful + 1
        else
           rac = .false.
@@ -706,36 +664,29 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
   end subroutine rightanglemove
 
   subroutine pivot
-    integer :: m,l,b,xhold,yhold,zhold,str,st,pr,ch1,ch2
+    !rotates a section of chain around the selected bead
+    integer :: m,l,b,g,xhold,yhold,zhold,str,st,pr,ch1,ch2
     logical :: pivcont,overlapvar
     double precision :: choose3,deltaenergy
     integer,dimension(:),allocatable :: delx,dely,delz
     type(protein),dimension(:),allocatable :: tempcoord
-  integer,dimension(:,:), allocatable :: tempisobond
+    integer,dimension(:,:), allocatable :: tempisobond
     integer,dimension(:,:,:),allocatable :: tempintbond
-      allocate(tempisobond(maxlength,maxlength))
-  allocate(tempintbond(nprotein,maxlength,maxlength))
+    allocate(tempisobond(maxlength,maxlength))
+    allocate(tempintbond(nprotein,maxlength,maxlength))
     allocate(tempcoord(maxlength))
     allocate(delx(maxlength))
     allocate(dely(maxlength))   
     allocate(delz(maxlength))
 
-    !write(6,*) 'here comes the pivot!!'
-
     choose3 = ran2(seed)
     pivcont = .true. 
     m =int(ran2(seed)*(nprotein))+1
-!write(6,*) m
     l = int(ran2(seed)*(maxlength-2))+2
-    !write(6,*) 'm = ', m
-    !write(6,*) 'l =', l
     t = time + 1
-
-
 
     if(l > maxlength/2) then
        do g = l+1,maxlength,1
-
           delx(g) = protcoords(m,g)%x - protcoords(m,l)%x
           xhold = delx(g)
           if(delx(g) > gridsize/2) delx(g) =  xhold-gridsize
@@ -757,7 +708,6 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
              tempcoord(b)%y = modulo(protcoords(m,l)%y + delx(b)-1,gridsize)+1
              tempcoord(b)%z = protcoords(m,b)%z
           end do
-
 
        else if (choose3 > 1.0/5 .and. choose3 <= 2.0/5) then
           do b =l+1,maxlength,1 
@@ -800,9 +750,10 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
              end if
           end do
        end do
-
+       deltaenergy = 0.0d0
        do pr = 1,nprotein,1
           if(pr /= m) then
+             !write(6,*) 'fail', pr
              do str = l+1,maxlength,1
                 do st = 1,maxlength,1
                    if(overlaps(pr,str,st,tempcoord) .eqv. .false.) then
@@ -817,37 +768,44 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        do str = l+1,maxlength,1
           do st = 1,l,1
              if(st < str-2) then
-                if(isobond(m,str,st) == 1.0) deltaenergy = deltaenergy - intraenergy
-                if(adjacent(m,m,l,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + intraenergy
-                   tempisobond(str,st) = 1.0
+                if(isobond(m,str,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
+                if(adjacent(m,str,st,tempcoord) .eqv. .true.) then
+                   deltaenergy = deltaenergy + (2*intraenergy)
+                   tempisobond(str,st) = 1
+                   !tempisobond(st,str) = 1
+                else
+                   tempisobond(str,st) = 0
+                   !tempisobond(st,str) = 0
                 end if
              end if
           end do
        end do
 
-
        do pr = 1,nprotein
           if(pr /= m) then
+             !write(6,*) 'fail pivot'
              do str = l+1,maxlength,1
                 do st = 1,maxlength
-                   if(intbond(m,pr,str,st) == 1.0) deltaenergy = deltaenergy - interenergy
-                   if(adjacent(m,pr,str,st,tempcoord) .eqv. .true.) then
-                      deltaenergy = deltaenergy + interenergy
-                      tempintbond(pr,str,st) = 1.0
+                   if(intbond(m,pr,str,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+                   if(adjacent(pr,str,st,tempcoord) .eqv. .true.) then
+                      deltaenergy = deltaenergy + (2*interenergy)
+                      tempintbond(pr,str,st) = 1
+                   else
+                      tempintbond(pr,str,st) = 0
                    end if
                 end do
              end do
           end if
        end do
 
-
        if(Energydecision(deltaenergy) .eqv. .true.) then
-               totalenergy = totalenergy + deltaenergy
-               call updatepos(m,l+1,maxlength,tempcoord)
-               call updateintrabond(m,l+1,maxlength,1,l,tempisobond)
-               call updateinterbond(m,l+1,maxlength,tempintbond)
-      
+          !write(6,*) totalenergy, deltaenergy
+          totalenergy = totalenergy + deltaenergy
+          !write(6,*) totalenergy,'piv1'
+          call updatepos(m,l+1,maxlength,tempcoord)
+          call updateintrabond(m,l+1,maxlength,1,l,tempisobond)
+          !call updateintrabond(m,1,l,l+1,maxlength,tempisobond)
+          call updateinterbond(m,l+1,maxlength,tempintbond)
           successful = successful + 1
 
        else
@@ -858,7 +816,6 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
     else if (l <= maxlength/2) then
        !continue
        !else if (l == 100000) then
-
        do g = 1,l-1,1
 
           delx(g) = protcoords(m,g)%x - protcoords(m,l)%x
@@ -879,7 +836,6 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        end do
        if (choose3 <= 1.0/5) then
 
-
           do b = 1,l-1,1 
              tempcoord(b)%x = modulo(protcoords(m,l)%x -dely(b)-1,gridsize)+1
              tempcoord(b)%y = modulo(protcoords(m,l)%y + delx(b)-1,gridsize)+1
@@ -892,7 +848,6 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
              tempcoord(b)%y = modulo(protcoords(m,l)%y - delx(b)-1,gridsize)+1
              tempcoord(b)%z = protcoords(m,b)%z
           end do
-
 
        else if (choose3 > 2.0/5 .and. choose3 <= 3.0/5) then
           do b =1,l-1,1                 
@@ -915,7 +870,7 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
              tempcoord(b)%y = protcoords(m,b)%y
           end do
        end if
-
+       deltaenergy = 0.0d0
        do str = 1,l-1,1
           do st = l,maxlength,1
              if(overlaps(m,str,st,tempcoord) .eqv. .false.) then
@@ -941,10 +896,14 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        do str = 1,l-1,1
           do st = l,maxlength,1
              if(st > str + 2) then
-                if(isobond(m,str,st) == 1.0) deltaenergy = deltaenergy - intraenergy
-                if(adjacent(m,m,l,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + intraenergy
-                   tempisobond(str,st) = 1.0
+                if(isobond(m,str,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
+                if(adjacent(m,str,st,tempcoord) .eqv. .true.) then
+                   deltaenergy = deltaenergy + (2*intraenergy)
+                   tempisobond(str,st) = 1
+              !     tempisobond(st,str) = 1
+                else 
+                   tempisobond(str,st) = 0
+             !      tempisobond(st,str) = 0
                 end if
              end if
           end do
@@ -952,26 +911,30 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
 
        do pr = 1,nprotein
           if(pr /= m) then
+             !write(6,*) 'fail pivot'
              do str = 1,l-1,1
                 do st = 1,maxlength,1
-                   if(intbond(m,pr,str,st) == 1.0) deltaenergy = deltaenergy - interenergy
-                   if(adjacent(m,pr,str,st,tempcoord) .eqv. .true.) then
-                      deltaenergy = deltaenergy + interenergy
-                      tempintbond(pr,str,st) = 1.0
+                   if(intbond(m,pr,str,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+                   if(adjacent(pr,str,st,tempcoord) .eqv. .true.) then
+                      deltaenergy = deltaenergy + (2*interenergy)
+                      tempintbond(pr,str,st) = 1
+                   else
+                      tempintbond(pr,str,st) = 0
                    end if
                 end do
              end do
           end if
        end do
 
-if(Energydecision(deltaenergy) .eqv. .true.) then
+       if(Energydecision(deltaenergy) .eqv. .true.) then
+          !write(6,*) totalenergy, deltaenergy
           totalenergy = totalenergy + deltaenergy
-     
+          !write(6,*) totalenergy,'piv2'
           call updatepos(m,1,l-1,tempcoord)
           call updateintrabond(m,1,l-1,l,maxlength,tempisobond)
+          !call updateintrabond(m,l,maxlength,1,l-1,tempisobond)
           call updateinterbond(m,1,l-1,tempintbond)
           successful = successful + 1
-
        else
           pivcont = .false.
           goto 75
@@ -982,14 +945,13 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        reject = reject + 1
     end if
 
-
   end subroutine pivot
 
 
   subroutine updatepos(chainnum,beadmin,beadmax,tempcoord)
-
+    !updates bead positions
     integer,intent(in):: chainnum,beadmin,beadmax
-        Type(protein),dimension(:),intent(in) :: tempcoord
+    Type(protein),dimension(:),intent(in) :: tempcoord
     integer ::g,beadnum
     !moves beads to new positions and reassigns isobonding
 
@@ -999,8 +961,23 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        protcoords(chainnum,beadnum)%z = tempcoord(beadnum)%z
     end do
 
+    !if(modulo(time,10) == 0) write(6,*) time,totalenergy
   end subroutine updatepos
 
+
+  subroutine bondcheck
+
+    integer:: m,l,f
+    open(12, file = 'bondintra.dat', action = 'write')
+    do m = 1,nprotein
+       do l = 1,maxlength,1
+          do f = 1,maxlength,1
+             if (f < l -2 .or. f > l+ 2) write(12,*) l,f,isobond(m,l,f)
+          end do
+       end do
+    end do
+
+  end subroutine bondcheck
 
   subroutine updateintrabond(chainnum,beadmin,beadmax,statmin,statmax,tempisobond)
 
@@ -1008,58 +985,50 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
     integer ::g,beadnum
     integer,dimension(:,:),intent(in) :: tempisobond
     do beadnum = beadmin,beadmax,1
-
        do g = statmin,statmax,1
-          if(g<beadmin-2 .or. g>beadmax +2)then
+          if((g<beadnum-2) .or. (g> beadnum+2))then
              isobond(chainnum,beadnum,g) = tempisobond(beadnum,g)
+             isobond(chainnum,g,beadnum) = tempisobond(beadnum,g)
+             !if(abs(tempisobond(beadnum,g)) >1) write(6,*) 'fail intra',g,tempisobond(beadnum,g)
           end if
        end do
     end do
+    !if(modulo(time,100) == 0) write(6,*) 'change in temporary energy',z2
 
   end subroutine updateintrabond
 
   subroutine updateinterbond(chainnum,beadmin,beadmax,tempintbond)
-
     integer,intent(in):: chainnum,beadmin,beadmax
     integer,dimension(:,:,:),intent(in) :: tempintbond
-    
     integer ::g,beadnum,chain2
     do beadnum = beadmin,beadmax,1
        do chain2 = 1,nprotein
           if (chain2 /= chainnum) then
              do g = 1,maxlength,1
                 intbond(chainnum,chain2,beadnum,g) = tempintbond(chain2,beadnum,g)
+                intbond(chain2,chainnum,g,beadnum) = tempintbond(chain2,beadnum,g)
              end do
           end if
        end do
     end do
+
   end subroutine updateinterbond
 
   subroutine reptation
     !perform reptation
     double precision :: choose,direc,deltaenergy
-    integer :: endchaincont,g1,g2,g3,g4,g5,g6,m,l,dxx,dyx,dzx,ch1,ch2
-    !logical :: energypass
-    integer:: str,st,pr
+    integer :: endchaincont,g,g1,g2,g3,g4,g5,g6,m,l,dxx,dyx,dzx,ch1,ch2
+    integer:: str,st,pr,dx,dy,dz,chain2,beads2
     logical :: reptcont,overlapvar
     type(protein),dimension(:),allocatable :: tempcoord
-   integer,dimension(:,:), allocatable :: tempisobond
+    integer,dimension(:,:), allocatable :: tempisobond
     integer,dimension(:,:,:),allocatable :: tempintbond
-      allocate(tempisobond(maxlength,maxlength))
-  allocate(tempintbond(nprotein,maxlength,maxlength))
+    allocate(tempisobond(maxlength,maxlength))
+    allocate(tempintbond(nprotein,maxlength,maxlength))
     allocate(tempcoord(maxlength))
 
-
-    !do m = 1,nprotein
-    !do l = 1,maxlength
-    !do f = 1,maxlength
-    !write(6,*) l,f,isobond(m,l,f)
-    !end do
-    !end do
-    !end do
-
     t = time + 1
-    choose = ran2(seed) - 0.5
+    choose =  ran2(seed) - 0.5
     !write(6,*) 'choose', choose
     reptcont = .true.
     m =int(ran2(seed)*(nprotein))+1
@@ -1108,14 +1077,15 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
             direc > (1.0*g1+g2+g3+g4+g5)/5 .and.  g6 == 1) then
           dz = -1
        end if
-       
+
        tempcoord(1)%x = modulo(protcoords(m,1)%x + dx-1,gridsize)+1
        tempcoord(1)%y = modulo(protcoords(m,1)%y + dy-1,gridsize)+1
        tempcoord(1)%z = modulo(protcoords(m,1)%z + dz-1,gridsize)+1
 
+       deltaenergy = 0.0d0
        do pr =1,nprotein    
           do st = 1,maxlength,1
-             if(pr /=m .or. st >1 .or. st < maxlength)then
+             if(pr /=m .or. st > 1 .or. st < maxlength)then
                 if(overlaps(pr,1,st,tempcoord) .eqv. .false.) then
                    reptcont = .false.
                    goto 83
@@ -1124,29 +1094,36 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
           end do
        end do
 
-       do st = 2,maxlength-3,1
-          if(isobond(m,maxlength,st) == 1.0) deltaenergy = deltaenergy - intraenergy
+       do st = 1,maxlength-3,1
+          if(isobond(m,maxlength,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
        end do
-       do st = 4,maxlength-1
-          if(adjacent(m,m,1,st,tempcoord) .eqv. .true.) then
-             deltaenergy = deltaenergy + intraenergy
-             tempisobond(1,st) = 1.0
-          end if
-       end do
-       do pr = 1,nprotein
-          if(pr /= m) then
-             do st = 1,maxlength
-                if(intbond(m,pr,maxlength,st) == 1.0) deltaenergy = deltaenergy - interenergy
-             end do
+       
+       !do chain2 = 1,nprotein
+          !if(m/= chain2) then
+             !do beads2 = 1,maxlength
+              !  if(intbond(m,chain2,maxlength,beads2) == 1) deltaenergy = deltaenergy - (2*interenergy)
+             !end do
+          !end if
+          !end do
+                
+       do st = 3,maxlength-1
+          if(adjacent(m,1,st,tempcoord) .eqv. .true.) then
+             deltaenergy = deltaenergy + (2*intraenergy)
+             tempisobond(1,st+1) = 1
+          else
+             tempisobond(1,st+1) = 0
           end if
        end do
 
        do pr = 1,nprotein
           if(pr /= m) then
              do st = 1,maxlength
-                if(adjacent(m,pr,1,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + interenergy
-                   tempintbond(pr,1,st) = 1.0
+                if(intbond(m,pr,maxlength,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+                if(adjacent(pr,1,st,tempcoord) .eqv. .true.) then
+                   deltaenergy = deltaenergy + (2*interenergy)
+                   tempintbond(pr,1,st) = 1
+                else
+                   tempintbond(pr,1,st) = 0
                 end if
              end do
           end if
@@ -1154,35 +1131,40 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
           totalenergy = totalenergy + deltaenergy
-          !         write(6,*) 'deltaiso', deltaiso
           do l =maxlength,2,-1
              protcoords(m,l)%x = protcoords(m,l-1)%x
              protcoords(m,l)%y = protcoords(m,l-1)%y
              protcoords(m,l)%z = protcoords(m,l-1)%z
-
+             
              do g = maxlength,2,-1
-                isobond(m,l,g) = isobond(m,l-1,g)
+                if((g < l-2) .or. (g> l+2)) isobond(m,l,g) = isobond(m,l-1,g-1)
              end do
-             !successful = successful+1
-          end do
+
+         
+                do chain2 = 1,nprotein
+                   if (m /= chain2) then
+                      do beads2 = 1,maxlength
+                         intbond(m,chain2,l,beads2) = intbond(m,chain2,l-1,beads2)
+                         intbond(chain2,m,beads2,l) = intbond(chain2,m,beads2,l-1)
+                      end do
+                   end if
+                   end do
+                end do
 
           call updatepos(m,1,1,tempcoord)
-          call updateintrabond(m,1,1,4,maxlength-1,tempisobond)
+          call updateintrabond(m,1,1,4,maxlength,tempisobond)
+          !call updateintrabond(m,4,maxlength,1,1,tempisobond)
           call updateinterbond(m,1,1,tempintbond)
-       
 
-
-          
           successful = successful + 1
           reptforward = reptforward + 1
-      
+
        else
           reptcont = .false.
        end if
 
        !end if
     else if (choose < 0.0) then
-
 
        dxx = protcoords(m,maxlength-1)%x - protcoords(m,maxlength)%x
        if (dxx > 1) dxx = -1
@@ -1200,7 +1182,7 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        if (dyx == -1) g4 = 0
        if (dzx == 1) g5 =0
        if (dzx == -1) g6 = 0
-       
+
        direc = ran2(seed)
        if(direc <= (1.0*g1)/5 .and. g1 == 1) then
           dx = 1
@@ -1208,7 +1190,6 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
           dx = -1
        else if(direc <= (1.0*g1+g2+g3)/5 .and.direc > (1.0*g1+g2)/5 .and.  g3 == 1) then
           dy = 1
-
        else if(direc <= (1.0*g1+g2+g3+g4)/5 .and. direc > (1.0*g1+g2+g3)/5 .and.  g4 == 1) then
           dy = -1
        else if(direc <= (1.0*g1+g2+g3+g4+g5)/5 .and. &
@@ -1218,11 +1199,12 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
             direc > (1.0*g1+g2+g3+g4+g5)/5 .and.  g6 == 1) then
           dz = -1
        end if
-       
+
        tempcoord(maxlength)%x = modulo(protcoords(m,maxlength)%x + dx-1,gridsize)+1
        tempcoord(maxlength)%y = modulo(protcoords(m,maxlength)%y + dy-1,gridsize)+1
        tempcoord(maxlength)%z = modulo(protcoords(m,maxlength)%z + dz-1,gridsize)+1
 
+       deltaenergy = 0.0d0
        do pr =1,nprotein    
           do st = 1,maxlength,1
              if(pr /=m .or. st >1 .or. st < maxlength)then
@@ -1234,64 +1216,76 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
           end do
        end do
 
-
-       do st = 4,maxlength-1,1
-          if(isobond(m,1,st) == 1.0) deltaenergy = deltaenergy - intraenergy
+       do st = 4,maxlength,1
+          if(isobond(m,1,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
        end do
-       do st = 2,maxlength-3
-          if(adjacent(m,m,maxlength,st,tempcoord) .eqv. .true.) then
-             deltaenergy = deltaenergy + intraenergy
-             tempisobond(maxlength,st) = 1.0
+
+       !do chain2 = 1,nprotein
+          !if(m/= chain2) then
+             !do beads2 = 1,maxlength
+                !if(intbond(m,chain2,1,beads2) == 1) deltaenergy = deltaenergy - (2*interenergy)
+             !end do
+          !end if
+       !end do
+
+       do st = 2,maxlength-2
+          if(adjacent(m,maxlength,st,tempcoord) .eqv. .true.) then
+             deltaenergy = deltaenergy + (2*intraenergy)
+             tempisobond(maxlength,st-1) = 1
+          else
+             tempisobond(maxlength,st-1) = 0
           end if
        end do
 
        do pr = 1,nprotein
           if(pr /= m) then
+             !write(6,*) 'fail rept'
              do st = 1,maxlength
-                if(intbond(m,pr,1,st) == 1.0) deltaenergy = deltaenergy - interenergy
-             end do
-          end if
-       end do
-       do pr = 1,nprotein
-          if(pr /= m) then
-             do st = 1,maxlength
-                if(adjacent(m,pr,maxlength,st,tempcoord) .eqv. .true.) then
-                   deltaenergy = deltaenergy + interenergy
-                   tempintbond(pr,maxlength,st) = 1.0
+                if(intbond(m,pr,1,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+                if(adjacent(pr,maxlength,st,tempcoord) .eqv. .true.) then
+                   deltaenergy = deltaenergy + (2*interenergy)
+                   tempintbond(pr,maxlength,st) = 1
+                else
+                   tempintbond(pr,maxlength,st) = 0
                 end if
              end do
           else
              continue
           end if
        end do
+
        if(Energydecision(deltaenergy) .eqv. .true.) then
-          totalenergy = totalenergy + deltaenergy   
+          totalenergy = totalenergy + deltaenergy
           do l =1,maxlength-1,1
              protcoords(m,l)%x = protcoords(m,l+1)%x
              protcoords(m,l)%y = protcoords(m,l+1)%y
              protcoords(m,l)%z = protcoords(m,l+1)%z
-
+             
              do g = 1,maxlength-1,1
-                isobond(m,l,g) = isobond(m,l+1,g)
+                if((g < l-2) .or. (g > l+2)) isobond(m,l,g) = isobond(m,l+1,g+1)
              end do
 
+                          do chain2 = 1,nprotein
+                   if (m /= chain2) then
+                      do beads2 = 1,maxlength
+                         intbond(m,chain2,l,beads2) = intbond(m,chain2,l+1,beads2)
+                         intbond(chain2,m,beads2,l) = intbond(chain2,m,beads2,l+1)
+                      end do
+                   end if
+                   end do
+             
           end do
-
           call updatepos(m,maxlength,maxlength,tempcoord)
-          call updateintrabond(m,maxlength,maxlength,2,maxlength-3,tempisobond)
+          call updateintrabond(m,maxlength,maxlength,1,maxlength-3,tempisobond)
+          !call updateintrabond(m,1,maxlength-3,maxlength,maxlength,tempisobond)
           call updateinterbond(m,maxlength,maxlength,tempintbond)
-      
-                    successful = successful + 1
+          successful = successful + 1
           reptbackward = reptbackward + 1
-      
        else
           reptcont = .false.
        end if
-       
-
     end if
 83  if (reptcont .eqv. .false.) then
-       !write(6,*) 'rept 2 fail'
        reject = reject + 1
     end if
 
@@ -1301,55 +1295,49 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
     !performs end chain rotation
     double precision :: choose2,deltaenergy
     logical :: endcont,overlapvar
-    integer :: l,m,hold,z1,z2,z3,z4,z5,z6,i,j,k,str,st,pr,ch1,ch2
+    integer :: l,m,hold,z1,z2,z3,z4,z5,z6,str,st,pr,ch1,ch2
     type(protein),dimension(:),allocatable :: tempcoord
-   integer,dimension(:,:), allocatable :: tempisobond
+    integer,dimension(:,:), allocatable :: tempisobond
     integer,dimension(:,:,:),allocatable :: tempintbond
-      allocate(tempisobond(maxlength,maxlength))
-  allocate(tempintbond(nprotein,maxlength,maxlength))
-  allocate(tempcoord(maxlength))
+    allocate(tempisobond(maxlength,maxlength))
+    allocate(tempintbond(nprotein,maxlength,maxlength))
+    allocate(tempcoord(maxlength))
 
     m = int(ran2(seed)*(nprotein))+1
     !if(m == 0) m = 1
     random = ran2(seed)
     choose2 = ran2(seed)-0.5
-
-
     endcont = .true.
 
     if (choose2 >= 0.0) then
        l = 1
-       i = protcoords(m,l+1)%x
-       j = protcoords(m,l+1)%y
-       k = protcoords(m,l+1)%z
-       !write(6,*) 'R'
+       tempcoord(l)%x = protcoords(m,l+1)%x
+       tempcoord(l)%y = protcoords(m,l+1)%y
+       tempcoord(l)%z = protcoords(m,l+1)%z
+       !write(6,*) 'R',l
     else if (choose2 < 0.0) then
        l = maxlength
-       i = protcoords(m,l-1)%x
-       j = protcoords(m,l-1)%y
-       k = protcoords(m,l-1)%z
-       !write(6,*) 'L'
+       tempcoord(l)%x = protcoords(m,l-1)%x
+       tempcoord(l)%y = protcoords(m,l-1)%y
+       tempcoord(l)%z = protcoords(m,l-1)%z
+       !write(6,*) 'L',l
     end if
-
 
     if(random<= 1.0/6) then
-       i = modulo(i,gridsize)+1
+       tempcoord(l)%x = modulo(tempcoord(l)%x,gridsize)+1
     else if (random> 1.0/6 .AND. random<=2.0/6) then
-       i = modulo(i - 2,gridsize)+1
+       tempcoord(l)%x = modulo(tempcoord(l)%x - 2,gridsize)+1
     else if (random> 2.0/6 .AND. random<=1.0/2) then
-       j = modulo(j,gridsize)+1
+       tempcoord(l)%y = modulo(tempcoord(l)%y,gridsize)+1
     else if (random> 1.0/2 .AND. random<=2.0/3) then                
-       j = modulo(j -2,gridsize)+1
+       tempcoord(l)%y = modulo(tempcoord(l)%y -2,gridsize)+1
     else if (random> 2.0/3 .AND. random<=5.0/6) then
-       k  = modulo(k,gridsize)+1
+       tempcoord(l)%z  = modulo(tempcoord(l)%z,gridsize)+1
     else if (random> 5.0/6 .AND. random<=1.0) then                
-       k = modulo(k-2,gridsize)+1
+       tempcoord(l)%z = modulo(tempcoord(l)%z-2,gridsize)+1
     end if
 
-    tempcoord(l)%x = i
-    tempcoord(l)%y = j
-    tempcoord(l)%z = k
-!write(6,*) i,j,k
+    deltaenergy = 0.0d0
     do pr =1,nprotein    
        do st = 1,maxlength,1
           if(pr /=m .or. st >1 .or. st < maxlength)then
@@ -1358,58 +1346,57 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
                 goto 71
              end if
           end if
-          !write(6,*) 'no overlap'
        end do
     end do
 
-!write(6,*) 'no overlap'
-
     do st = 1,maxlength,1
        if(st > l +2 .or. st < l-2) then
-       if(isobond(m,l,st) == 1.0) deltaenergy = deltaenergy - intraenergy
-       if(adjacent(m,pr,l,st,tempcoord) .eqv. .true.) then
-          deltaenergy = deltaenergy + intraenergy
-          tempisobond(l,st) = 1.0
-       end if
+          if(isobond(m,l,st) == 1) deltaenergy = deltaenergy - (2*intraenergy)
+          if(adjacent(m,l,st,tempcoord) .eqv. .true.) then
+             deltaenergy = deltaenergy + (2*intraenergy)
+             tempisobond(l,st) = 1
+             !tempisobond(st,l) = 1
+          else
+             tempisobond(l,st) = 0
+             !tempisobond(st,l) = 0
+          end if
        end if
     end do
     do pr = 1,nprotein
        if(pr /= m) then
+          !write(6,*) 'fail end'
           do st = 1,maxlength
-             if(intbond(m,pr,l,st) == 1.0) deltaenergy = deltaenergy - interenergy
-             if(adjacent(m,pr,l,st,tempcoord) .eqv. .true.) then
-                deltaenergy = deltaenergy + interenergy
-                tempintbond(pr,l,st) = 1.0
+             if(intbond(m,pr,l,st) == 1) deltaenergy = deltaenergy - (2*interenergy)
+             if(adjacent(pr,l,st,tempcoord) .eqv. .true.) then
+                deltaenergy = deltaenergy + (2*interenergy)
+                tempintbond(pr,l,st) = 1
+             else
+                tempintbond(pr,l,st) = 0
              end if
           end do
        end if
     end do
 
-
-
-
-if(Energydecision(deltaenergy) .eqv. .true.) then
+    if(Energydecision(deltaenergy) .eqv. .true.) then
+       !write(6,*) totalenergy, deltaenergy
        totalenergy = totalenergy + deltaenergy
-
+       !write(6,*) totalenergy
        call updatepos(m,l,l,tempcoord)
        call updateintrabond(m,l,l,1,maxlength,tempisobond)
+       !call updateintrabond(m,1,maxlength,l,l,tempisobond)
        call updateinterbond(m,l,l,tempintbond)
-      
        successful = successful + 1
-
     else
        endcont = .false.
     end if
-
 
 71  if (endcont .eqv. .false.) then
        reject = reject + 1
     end if
   end subroutine endmove
 
-
   subroutine comfind
-    integer :: dcomx,dcomy,dcomz
+    integer :: dcomx,dcomy,dcomz,comx,comy,comz
     integer :: m,l
     t = time +1
     do m = 1,nprotein,1
@@ -1417,62 +1404,51 @@ if(Energydecision(deltaenergy) .eqv. .true.) then
        comy = 0.0d0
        comz = 0.0d0
        do l = 2,maxlength,1
-
           dcomx = protcoords(m,l)%x-protcoords(m,l-1)%x
           if (dcomx > 1.5) dcomx = -1
           if (dcomx < -1.5) dcomx = 1
           comx = comx + dcomx
-
           dcomy = protcoords(m,l)%y-protcoords(m,l-1)%y
           if (dcomy > 1.5) dcomy = -1
           if (dcomy < -1.5) dcomy = 1
           comy = comy + dcomy
-
           dcomz = protcoords(m,l)%z-protcoords(m,l-1)%z
           if (dcomz > 1.5) dcomz = -1
           if (dcomz < -1.5) dcomz = 1
           comz = comz + dcomz
        end do
-       com(t,m)%x = modulo(protcoords(m,1)%x +(comx/2),1.0*gridsize)
-       com(t,m)%y = modulo(protcoords(m,1)%y +(comy/2),1.0*gridsize)
-       com(t,m)%z = modulo(protcoords(m,1)%z +(comz/2),1.0*gridsize)
+       com(t,m)%x = modulo(protcoords(m,1)%x +(comx/2),gridsize)
+       com(t,m)%y = modulo(protcoords(m,1)%y +(comy/2),gridsize)
+       com(t,m)%z = modulo(protcoords(m,1)%z +(comz/2),gridsize)
     end do
   end subroutine comfind
 
-
-
-  logical Function overlaps (pr,ch1,ch2,tempcoord)
+  logical Function overlaps (pr,ch1,ch2,tempcoords)
     integer,intent(in) :: pr,ch1,ch2
-    Type(protein),dimension(:),intent(in) :: tempcoord
-    
-!write(6,*) pr,proti,l,f,overlapvar
-overlaps = .true.
-    if(protcoords(pr,ch2)%x == tempcoord(ch1)%x.and. &
-         protcoords(pr,ch2)%y == tempcoord(ch1)%y .and. &
-         protcoords(pr,ch2)%z == tempcoord(ch1)%z) then
+    Type(protein),dimension(:),intent(in) :: tempcoords
+    overlaps = .true.
+    if(protcoords(pr,ch2)%x == tempcoords(ch1)%x.and. &
+         protcoords(pr,ch2)%y == tempcoords(ch1)%y .and. &
+         protcoords(pr,ch2)%z == tempcoords(ch1)%z) then
        overlaps = .false.
     end if
-
-
   end Function Overlaps
 
   subroutine energy
-   
-    integer :: dx,dy,dz,sumdebug,m,l,f,g
+    integer :: dx,dy,dz,m,l,f,g
     double precision :: initialenergy
-
+    !logical :: energypassx,energypassy,energypassz
     initialenergy = 0.0d0
     totalenergy = 0.0d0
-    isoenergy = 0.0d0
+
     do m= 1,nprotein,1
        do l = 1,maxlength,1
           do f = 1,maxlength,1
 
-
              dx = 4
              dy = 4
              dz = 4
-             isobond(m,l,f) = 0
+             !isobond(m,l,f) = 0
              if(f < l-2 .or. f > l + 2) then
                 !write(6,*) 'l',l,'f',f
 
@@ -1490,7 +1466,6 @@ overlaps = .true.
 
                 else if(abs(protcoords(m,l)%y - protcoords(m,f)%y) == 0) then
                    dy = 0
-                   energypassy = .true.
                 end if
                 if(dy ==4) goto 69
                 if(abs(protcoords(m,l)%z - protcoords(m,f)%z) == 1 .or.abs(protcoords(m,l)%z &
@@ -1498,39 +1473,34 @@ overlaps = .true.
                    dz = 1
                 else if(abs(protcoords(m,l)%z - protcoords(m,f)%z) == 0) then
                    dz = 0
-                   energypassz = .true.
                 end if
-
                 if(dz == 4) goto 69
 
-                sumdebug = dx + dy + dz
-                if(sumdebug == 1) then
+                if(dx + dy + dz == 1) then
                    isobond(m,l,f) = 1
                    initialenergy = initialenergy + intraenergy
-                else if(sumdebug /= 1) then
+                else 
                    isobond(m,l,f) = 0
                 end if
              end if
-69           if(dx ==4 .or. dy ==4 .or. dz==4) then
+69           if((dx ==4) .or. (dy ==4) .or. (dz==4)) then
                 isobond(m,l,f) = 0
-                end if
+             end if
           end do
        end do
     end do
 
-  
+
 !!!!!!! interatomic
     do m= 1,nprotein,1
-       do g = 1,nprotein
+       do g = 1,nprotein,1
           do l = 1,maxlength,1
              do f = 1,maxlength,1
                 if(g /=m) then
                    dx = 4
                    dy = 4
                    dz = 4
-                   intbond(g,m,l,f) = 0
-
-                   write(6,*) 'l',l,'f',f
+                   !write(6,*) 'l',l,'f',f
 
                    if(abs(protcoords(m,l)%x - protcoords(g,f)%x) == 1 .or. abs(protcoords(m,l)%x - &
                         protcoords(g,f)%x) == (gridsize - 1)) then
@@ -1553,26 +1523,24 @@ overlaps = .true.
                       dz = 0
                    end if
                    if(dz == 4) goto 71
-
-                   sumdebug = dx + dy + dz
-                   if(sumdebug == 1) then
+                   if(dx + dy + dz == 1) then
                       intbond(m,g,l,f) = 1
                       initialenergy = initialenergy + interenergy
-                   else if(sumdebug /= 1.0) then
+                   else 
                       intbond(m,g,l,f) = 0
                    end if
                 end if
-!write(6,*) m,g,l,f,intbond(m,g,l,f)
-                71  if(dx ==4 .or. dy ==4 .or. dz==4) then
-          intbond(m,g,l,f) = 0
-       end if
-    
+                !write(6,*) m,g,l,f,intbond(m,g,l,f)
+71              if(dx ==4 .or. dy ==4 .or. dz==4) then
+                   intbond(m,g,l,f) = 0
+                end if
+
              end do
           end do
        end do
     end do
-    write(93,*) time,initialenergy
-totalenergy = initialenergy
+    write(93,*) time,initialenergy/2
+    totalenergy = initialenergy
 
 
   end subroutine energy
@@ -1581,7 +1549,7 @@ totalenergy = initialenergy
     real :: totrog
     integer::m,l
     double precision :: rog
-  
+
     do m = 1,nprotein,1
        do l = 1, maxlength,1
           rog = (min(modulo(protcoords(m,l)%x-com(time,m)%x,gridsize*1.0),(gridsize - &
@@ -1603,15 +1571,15 @@ totalenergy = initialenergy
 
 
 
-  logical Function adjacent(proti,pr,ch1,ch2,tempcoord)
-    integer,intent(in):: proti,pr,ch1,ch2
+  logical Function adjacent(pr,ch1,ch2,tempory)
+    integer,intent(in):: pr,ch1,ch2
     integer::dx,dy,dz,delx,dely,delz
-    Type(protein),dimension(:),intent(in) :: tempcoord
+    Type(protein),dimension(:),intent(in) :: tempory
     dx = 4
     dy = 4
     dz = 4
-    adjacent = .true.
-    delx = abs(tempcoord(ch1)%x - protcoords(pr,ch2)%x)
+
+    delx = abs(tempory(ch1)%x - protcoords(pr,ch2)%x)
     if(delx == 1 .or. delx == (gridsize - 1)) then
        dx = 1
     else if(delx == 0) then
@@ -1619,10 +1587,10 @@ totalenergy = initialenergy
     end if
     if(dx == 4) then
        adjacent = .false.
-      return
+       return
     end if
 
-    dely = abs(tempcoord(ch1)%y - protcoords(pr,ch2)%y)
+    dely = abs(tempory(ch1)%y - protcoords(pr,ch2)%y)
     if(dely == 1 .or.dely == (gridsize - 1)) then
        dy = 1
     else if(dely == 0) then
@@ -1633,15 +1601,21 @@ totalenergy = initialenergy
        return
     end if
 
-    delz = abs(tempcoord(ch1)%z - protcoords(pr,ch2)%z)
+    delz = abs(tempory(ch1)%z - protcoords(pr,ch2)%z)
     if(delz == 1 .or. delz == (gridsize -1)) then
        dz = 1
-    else if(delz == 0.0) then
+    else if(delz == 0) then
        dz = 0
     end if
     if(dz == 4) then
        adjacent = .false.
        return
+    end if
+
+    if(dx + dy + dz ==1) then
+       adjacent = .true.
+    else if(dx + dy + dz /= 1) then
+       adjacent = .false.
     end if
 
   end Function adjacent
@@ -1701,17 +1675,10 @@ totalenergy = initialenergy
     t = time 
     do m = 1,nprotein,1
        do l = 1,maxlength,1
-          !maybe put in m
           write(67,*) 'C', 2*protcoords(m,l)%x, 2*protcoords(m,l)%y, &
                2*protcoords(m,l)%z
-          !write(19,*) l, protcoords(t,m,l)%x, protcoords(t,m,l)%y, &
-          !    protcoords(t,m,l)%z
-          !do g = 1,maxlength,1
-          !write(72,*) m,l,g,isobond(m,l,g)
-          !end do
        end do
     end do
-
   end subroutine dataout
 
   subroutine length
@@ -1758,9 +1725,9 @@ totalenergy = initialenergy
     write(91,*) t,avechainlength,actualchainlength/(time/10)
   end subroutine length
 
- 
+
   subroutine debug
-    integer::m,l,f,g
+    integer::m,l,f,g,dx,dy,dz
 
     do m = 1,nprotein,1
        do l = 1,maxlength,1
@@ -1785,9 +1752,6 @@ totalenergy = initialenergy
           end do
 
           if(l>1) then
-
-
-
 
 
              !write(6,*) 'l',l,'f',f
