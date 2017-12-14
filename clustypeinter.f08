@@ -4826,7 +4826,7 @@ runtype = 1
 maxtime = maxtime*1000
        CASE ('EQUIB_TIME')
           CALL get_integer(equilib)
-
+equilib =equilib*1000
        CASE ('RIGHTANGLE')
           CALL get_integer(right)
 
