@@ -19,7 +19,7 @@ program setup
 
    
   type(protein),dimension(:,:),allocatable :: protcoords
-linkerlength = 7
+!linkerlength = 7
 write(6,*) 'a'         
 
   !open(17, file = 'setup.txt', action = 'read')
@@ -96,7 +96,7 @@ maxlength = maxval(specieslen)
  
  subroutine positioning
    integer :: gate,xbk,ybk,zbk,protpass,f,speciesselect,spcount1,spcount2,maxl
-   integer::maxback
+   integer::maxback,dx,dy,dz
    Real:: t1,t2,t3,t4,t5,t6
    integer,dimension(:),allocatable::spcount
    allocate(spcount(nspecies))
@@ -175,25 +175,20 @@ spcount(m) = 0
             
 15          if (control ==1) then
 
-               i = xbk
-               j = ybk
-               k = zbk
-               do scans = 1,linkerlength
-                  x = int(ran2(seed)*6) + 1
-                  if(x == 1) then
-                     i = modulo(i,gridsize)+1
-                  else if(x == 2) then
-                     i = modulo(i - 2,gridsize)+1
-                  else if(x == 3) then
-                     j = modulo(j,gridsize) +1
-                  else if(x == 4) then
-                     j = modulo(j -2,gridsize)+1
-                  else if(x == 5) then
-                     k  = modulo(k,gridsize)+1
-                  else if(x == 6) then
-                     k = modulo(k-2,gridsize)+1
-                  end if
-               end do
+
+               dx = nint((ran2(seed)-0.5)*(2*linkerlength))
+               dy = nint((ran2(seed)-0.5)*(2*linkerlength))
+               dz = nint((ran2(seed)-0.5)*(2*linkerlength))
+
+
+
+               if((dx**2 + dy**2 + dz**2) > linkerlength) goto 15
+               
+
+                     i = modulo(xbk+dx-1,gridsize)+1
+                     j = modulo(ybk +dy-1,gridsize)+1
+                     k  = modulo(zbk+dz-1,gridsize)+1
+
                do g = 1, hold-1
                maxback = specieslen(protcoords(g,1)%species)
                   do f = 1,maxback
@@ -411,6 +406,11 @@ CASE ('INTERACTION')
 
 
 CASE ('RESTART')
+
+CASE ('LINK')
+call get_integer(linkerlength)
+
+CASE ('CLUSSTEP')
 
            CASE DEFAULT
          WRITE (6, '(/, 3A, /)') 'ERROR: Keyword not recognised in setup file: ', TRIM(keyword), '.'
