@@ -7,11 +7,12 @@ program move
   double precision,dimension(:),allocatable::coordx,coordy,coordz
   integer::totpoints,n,m,l,t,j,lx,timeofinterest,dummymax,count
   integer,dimension(:),allocatable :: chlen,speciespop,specieslen
-  double precision::dx,dy,dz,delta
+  double precision::dx,dy,dz,delta,dr,r,rho
   integer,dimension(:,:),allocatable::summing
   integer::binsize,maxl,gridsize,unusedtime,maxtime,nprotein,mtype,nspecies
   character(len = 10) :: commandread,commandread2,commandread3
 character(len=10) :: a,b,c
+real(8),  parameter :: PI_8  = 4 * atan (1.0_8)
 
   type rprot
      real :: x,y,z
@@ -103,7 +104,7 @@ count = 1
      do t = 1,unusedtime
         read(21,*) BIN
         read(21,*) BIN
-        read(21,*) BIN,BIN,BIN
+        !read(21,*) BIN,BIN,BIN
      do m = 1,totpoints
            read(21,*)BIN
         end do
@@ -152,14 +153,18 @@ end do
   !read(21,*) a,b,c
   !write(6,*) 'a',a,b,c
 
+dr = 1.0/binsize
+rho = (totpoints/2)/real(gridsize**3)
 
   do l = 1,gridsize*binsize
       !write(29,'(f8.3)',advance= 'no') real(l)/binsize
 !do n = 1,mtype
    !if(n<mtype) write(29,'(f8.3)',advance= 'no') summing(n,l)
    !if(n==mtype) write(6,*) summing(n,l)
-   !end do
-     write(29,*) real(l)/binsize,summing(1,l),summing(2,l),summing(3,l)
+     !end do
+
+   r = real(l)/binsize  
+     write(29,*) r,summing(1,l)/(4*PI_8*(r**2)*rho),summing(2,l)/(4*PI_8*(r**2)*rho),summing(3,l)/(4*PI_8*(r**2)*rho)
 end do
 
 contains
@@ -184,7 +189,7 @@ contains
 
 
 
-
+mtype = 0
  
 
 
