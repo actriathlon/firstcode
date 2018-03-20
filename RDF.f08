@@ -1,3 +1,4 @@
+
 program move
 
   implicit none
@@ -25,7 +26,7 @@ real(8),  parameter :: PI_8  = 4 * atan (1.0_8)
   open(21, file = 'movetagged.vtf', action = 'read')
   open(23, file = 'coms.dat', action = 'read')
   open(29, file = 'RDF.dat', action = 'write')
-
+  open(31, file = 'unnormRDF.dat', action = 'write')
 
   call read_setup
 write(6,*) 'mytype',mtype
@@ -50,7 +51,7 @@ read(commandread3, '(i4)') timeofinterest
 
 
 
-  allocate(summing(mtype,gridsize*binsize))
+  allocate(summing(mtype,4*gridsize*binsize))
   allocate(com(totpoints/2))
   allocate(coordx(totpoints/2))
   allocate(coordy(totpoints/2))
@@ -80,7 +81,7 @@ count = 1
         read(21,*)BIN,BIN,BIN,BIN,BIN,BIN,BIN,BIN
      count = count+1
   end do
-     do l = maxl/2+1,maxl
+     do l = (maxl/2)+1,maxl
         read(21,*)BIN,j,BIN,BIN,BIN,BIN,BIN,BIN
         read(21,*)BIN,BIN,BIN,BIN,BIN,BIN,BIN,BIN
         type(count) = 6
@@ -115,13 +116,11 @@ count = 1
   !write(6,*) 'xxxx',a,b,c
   
   do t = 1,timeofinterest
-!t = 1
    read(21,*) BIN
         read(21,*) BIN
         !read(21,*) BIN,BIN,BIN
 
         do m = 1,totpoints,1
-           !write(6,*) 'types',type(3),type(7),type(120)
 
         if(modulo(m,2) == 0) then
 read(21,*) BIN,BIN,BIN,BIN
@@ -132,14 +131,12 @@ end if
 
         dx = min(abs(com(t)%x-coordx((m+1)/2)),gridsize-abs(com(t)%x-coordx((m+1)/2)))
         dy = min(abs(com(t)%y-coordy((m+1)/2)),gridsize-abs(com(t)%y-coordy((m+1)/2)))
-        dz = min(abs(com(t)%z-coordx((m+1)/2)),gridsize-abs(com(t)%z-coordz((m+1)/2)))
+        dz = min(abs(com(t)%z-coordz((m+1)/2)),gridsize-abs(com(t)%z-coordz((m+1)/2)))
 
         delta = sqrt((dx**2)+(dy**2)+(dz**2))
         
         lx = INT(delta/(1.0/binsize))
-        !write(6,*)'m',m
-!write(6,*) 'lx',lx,m,(m+1)/2,type((m+1)/2)
-        if(abs(lx)>(gridsize*binsize)) goto 11
+        if(abs(lx)>(4*gridsize*binsize)) goto 11
 
         summing(type((m+1)/2)/2,lx) = summing(type((m+1)/2)/2,lx)+1
 
@@ -156,7 +153,7 @@ end do
 dr = 1.0/binsize
 rho = (totpoints/2)/real(gridsize**3)
 
-  do l = 1,gridsize*binsize
+  do l = 1,4*gridsize*binsize
       !write(29,'(f8.3)',advance= 'no') real(l)/binsize
 !do n = 1,mtype
    !if(n<mtype) write(29,'(f8.3)',advance= 'no') summing(n,l)
@@ -164,7 +161,8 @@ rho = (totpoints/2)/real(gridsize**3)
      !end do
 
    r = real(l)/binsize  
-     write(29,*) r,summing(1,l)/(4*PI_8*(r**2)*rho),summing(2,l)/(4*PI_8*(r**2)*rho),summing(3,l)/(4*PI_8*(r**2)*rho)
+   write(29,*) r,summing(1,l)/(4*PI_8*(r**2)*rho),summing(2,l)/(4*PI_8*(r**2)*rho),summing(3,l)/(4*PI_8*(r**2)*rho)
+      write(31,*) r,summing(1,l),summing(2,l),summing(3,l)
 end do
 
 contains
