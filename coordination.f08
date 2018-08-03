@@ -89,7 +89,7 @@ suffclust = .false.
      else if(noinfo .eqv. .false.) then
         if(scalinginfo .eqv. .true.) then
            open(11,file='scalingdata.dat',action = 'write')
-           open(29, file = 'rms.dat', action = 'write')
+           !open(29, file = 'rms.dat', action = 'write')
            open(91, file = 'avechainlength.dat', action = 'write')
            open(97, file = 'radiusofgyration.dat', action = 'write')
            open(79, file = 'runningave.dat', action = 'write')
@@ -97,7 +97,7 @@ suffclust = .false.
            open(13,file='timedata.dat',action = 'write')
            open(19,file='acceptance.dat',action  = 'write')
         else if(scalinginfo .eqv. .false.) then
-           open(29, file = 'rms.dat', action = 'write')
+           !open(29, file = 'rms.dat', action = 'write')
            open(93, file = 'energy.dat', action = 'write')
            open(77,file='phasetrans.dat',action = 'write')
            open(82,file = 'newclusterdata.dat', action = 'write')
@@ -117,7 +117,7 @@ suffclust = .false.
      else if(noinfo .eqv. .false.) then
         if(scalinginfo .eqv. .true.) then
            open(11,file='scalingdata.dat',access = 'append')
-           open(29, file = 'rms.dat', access = 'append')
+           !open(29, file = 'rms.dat', access = 'append')
            open(91, file = 'avechainlength.dat', access = 'append')
            open(97, file = 'radiusofgyration.dat', access = 'append')
            open(79, file = 'runningave.dat', access = 'append')
@@ -125,14 +125,14 @@ suffclust = .false.
            open(13,file='timedata.dat',access = 'append')
            open(19,file='acceptance.dat',access  = 'append')
         else if(scalinginfo .eqv. .false.) then
-           open(29, file = 'rms.dat', access = 'append')
+           !open(29, file = 'rms.dat', access = 'append')
            open(93, file = 'energy.dat', access = 'append')
            open(82,file = 'newclusterdata.dat', access = 'append')
            open(13,file='timedata.dat',access = 'append')
            open(77,file='phasetrans.dat',access = 'append')
            open(19,file='acceptance.dat',access  = 'append')
            open(38,file = 'histclust.dat',access = 'append')
-           open(3,file='coms.dat',action = 'write')
+           open(3,file='coms.dat',access = 'append')
            !open(67,file='bondddd.dat',action  = 'write')
         end if
      end if
@@ -163,7 +163,8 @@ suffclust = .false.
   successful = 0
   reject = 0
   backtime = maxtime
-
+reacc = 0
+rerej = 0
 
   totdire = 0.0
   totiso = 0.0d0
@@ -258,23 +259,30 @@ com(2,qt)%z = com(1,qt)%z
 if(time < 0) time = abs(time)
      fail = .false.
 
-     if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
-        call dataout
-     end if
+     !if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
+     !   call dataout
+     !end if
 !write(6,*) 'c'
+do qt = 1,1000
      if((nobonds .eqv. .true.) .and. (clt .eqv. .false.)) then
         choose1 = ran2(seed)-0.5
         if(choose1 <=0.0) call positioning
         if((choose1>0.0) .and. (rept ==1)) call reptation
         if((choose1>0.0) .and. (rept ==0)) call positioning
-         if((modulo(time,maxtime/100) == 0)) then
-        write(29,*) (time-equilib), real(totrmsbrute/nprotein)
-     end if
+         !if((modulo(time,maxtime/100) == 0)) then
+        !write(29,*) (time-equilib), real(totrmsbrute/nprotein)
+     !end if
 
 else
       call pickmoves
 end if
+   call CPU_TIME(midpoint)
+     if((midpoint-start)> 216000) then
+        backtime = time
+        goto 93
+     end if
 
+end do
      
      if (mod(time,outputrate) == 0) then
         if(noinfo .eqv. .false.)  write(93,*) time,totalenergy
@@ -283,6 +291,11 @@ end if
 call energy(.false.)
 call clustercount
 end if
+
+     if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
+        call dataout
+     end if
+
 
      if((time > equilib) .and. (modulo(time,outputrate) == 0) .and. (scalinginfo .eqv. .true.)) then
         call length
@@ -366,7 +379,7 @@ end if
               end do
            
               write(113,*) rr,sumr1/(timeofinterest*(4.0/3.0)*PI_8*(rr**3)),sumr2/(timeofinterest*(4.0/3.0)*PI_8*(rr**3)),&
-                   (sumr2+sumr1)/(timeofinterest*(4.0/3.0)*PI_8*(rr**3))
+(sumr2+sumr1)/(timeofinterest*(4.0/3.0)*PI_8*(rr**3))
            write(114,*) rr,sumr1/timeofinterest,sumr2/timeofinterest,summing(1,gr)/timeofinterest,summing(2,gr)/timeofinterest
         end do
         close(113)
@@ -768,6 +781,7 @@ if(scalinginfo .eqv. .true.) call pdbsetup
     character(len = 10) :: BIN
     read(23,*) lastruntime,totrmsbrute,suffclust
 lastruntime = abs(lastruntime)
+if(lastruntime >= 1000000000) lastruntime = lastruntime/1000
     do m = 1,nprotein,1
        read(23,*) protcoords(m,1)%species, protcoords(m,1)%x, protcoords(m,1)%y, protcoords(m,1)%z,&
             protcoords(m,1)%type,bonddd(m,1),chlen(m),protcoords(m,1)%linker
@@ -873,9 +887,9 @@ scans = 1
 
 
     
-        if((modulo(time,maxtime/100) == 0)) then
-        write(29,*) (time-equilib)*scans, real(totrmsbrute)/nprotein
-     end if
+        !if((modulo(time,maxtime/100) == 0)) then
+        !write(29,*) (time-equilib)*scans, real(totrmsbrute)/nprotein
+     !end if
 
    end subroutine pickmoves
 
@@ -1096,7 +1110,7 @@ macc = macc + 1
     do ra = 1,clsize
        a = cllist(ra)
        maxback = chlen(a)
-       call rms(a)
+       !call rms(a)
        do l = 1,maxback,1
           protcoords(a,l)%x = tempcluscoord(a,l)%x
           protcoords(a,l)%y = tempcluscoord(a,l)%y
@@ -1111,7 +1125,7 @@ macc = macc + 1
        com(1,a)%y = tcom(a)%y
        com(1,a)%z = tcom(a)%z
        !call comfind(a,.TRUE.)
-       call rms(a)
+       !call rms(a)
        call tracking(a)
     end do
 
@@ -3050,7 +3064,7 @@ chen(m)= 0.0d0
            call tracking(m)
         end if
         
-        if(track .eqv. .true.) call rms(m)
+       ! if(track .eqv. .true.) call rms(m)
     
   end subroutine comfind
 
@@ -4208,7 +4222,7 @@ end subroutine fastoverlap
     do m = 1,nprotein-1,1
        maxback = chlen(m)
        do g = m+1,nprotein,1
-          if((g/=m) .and. (clnos(m) /= clnos(g))) then
+          !if((g/=m) .and. (clnos(m) /= clnos(g))) then
              maxlengthss = chlen(g)
              do l = 1,maxback
                 tempcoord(l)%x = protcoords(m,l)%x
@@ -4289,7 +4303,7 @@ end subroutine fastoverlap
                    end if
                 end do
              end do
-          end if
+          !end if
        end do
     end do
 
@@ -4913,10 +4927,10 @@ call get_integer(dum)
 
        CASE ('SIM_TIME')
           CALL get_integer(maxtime)
-          maxtime = maxtime*1000
+          maxtime = maxtime
        CASE ('EQUIB_TIME')
           CALL get_integer(equilib)
-          equilib = equilib*1000
+          equilib = equilib
        CASE ('RIGHTANGLE')
           !CALL get_integer(right)
 
