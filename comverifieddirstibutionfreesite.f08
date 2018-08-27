@@ -3,12 +3,12 @@ program move
   implicit none
 
   character(len=10)::BIN
-  integer,dimension(:),allocatable::type
+  integer,dimension(:),allocatable::type,bulkneigh,clusneigh
   double precision,dimension(:),allocatable::coordx,coordy,coordz,en,sum1
   integer::totpoints,n,m,l,t,j,lx,timeofinterest,dummymax,count,e,maxlength,kx,t1,t2
   double precision::bondx,bondy,bondz,rx,ry,rz,readcomx,readcomy,readcomz
   integer,dimension(:),allocatable ::chlen,speciespop,specieslen,specieslink,totunb
-  double precision::delta,r,dr,rho,intraen,totiso
+  double precision::delta,r,dr,rho,intraen,totiso,sumall
   real,dimension(:,:),allocatable::summing,radial,allsum
 integer::binsize,maxl,gridsize,unusedtime,maxtime,nprotein,mtype,nspecies,preinterest,time
 integer::firstrun,ft,gt,x,halfbox
@@ -18,7 +18,8 @@ integer::firstrun,ft,gt,x,halfbox
   double precision,dimension(:,:),allocatable :: interenergy,interen,intraenergy
   logical ::isbond  
 integer:: norma,normb,normc,normd
-
+integer,dimension(:,:),allocatable :: runningclusterlist
+integer,dimension(6)::totclhist,totblhist
   type rprot
      real :: x,y,z
      integer::bond,type
@@ -26,8 +27,8 @@ integer:: norma,normb,normc,normd
 
 
   type rprot2
-     real :: x,y,z,a1,a2,a3,a4,a5,a6,linker
-     integer::bond,type
+     real :: a1,a2,a3,a4,a5,a6,linker
+     integer::x,y,z,bond,type
   end type rprot2
 
 
@@ -56,7 +57,7 @@ end type
   open(39, file='energy.dat',action='read')
   open(38, file = 'freesitedist.dat', action = 'write')
   open(47, file='coms.dat',action='read')
-  open(68,file ='unnormdist.dat',action='write')
+  open(68,file ='unbounddensity.dat',action='write')
 open(168,file='densitybeadspershell.dat',action='write')  
 isbond = .true.
   call read_setup
@@ -102,6 +103,7 @@ halfbox = int((sqrt(3*(real(gridsize)**2)))/2)
 
   allocate(summing(4*mtype,((halfbox)*binsize)+2))
   allocate(radial(4*mtype,((halfbox)*binsize)+2))
+allocate(allsum(mtype,((halfbox)*binsize)+2))
   allocate(com(2,nprotein))
   allocate(coordx(totpoints/2))
   allocate(coordy(totpoints/2))
@@ -117,21 +119,22 @@ halfbox = int((sqrt(3*(real(gridsize)**2)))/2)
   allocate(b2bulk(specieslen(2)*speciespop(2)))
   allocate(en(timeofinterest))
   allocate(chlen(nprotein))
+allocate(bulkneigh(mtype))
+allocate(clusneigh(mtype))
+allocate(totunb(4))
   allocate(type(totpoints/2))
   allocate(sum1(4*mtype))
-allocate(totunb(4))
-allocate(allsum(mtype,((halfbox)*binsize)+2))
+allocate(runningclusterlist(nprotein,2))
 
-
-
-totunb(:) = 0.0d0
-
-allsum(:,:) = 0
+clusneigh = 0
+bulkneigh = 0
   summing(:,:) = 0
 radial(:,:) = 0
-
-
+allsum(:,:) = 0
+totunb(:) = 0
   count = 1
+totclhist(:) = 0
+totblhist(:) = 0
 
   read(21,*) BIN,BIN,BIN,BIN,BIN,BIN
   do m = 1,nprotein
@@ -163,19 +166,18 @@ chains(m,l)%linker = specieslink(chains(m,l)%type)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   do m = 1,preinterest
 !  read(39,*) BIN,BIN
-!end do
-
-read(47,*) BIN,BIN
+!read(47,*) BIN,BIN
+read(47,*)BIN,BIN
 end do
+
 do m = 1,firstrun,1
      !read(21,*) BIN
      !read(21,*) BIN
-read(39,*) BIN,BIN
-read(47,*) BIN,BIN
-     !read(21,*) BIN,BIN,BIN
-     do  l= 1,totpoints
+     read(39,*) BIN,BIN
+     read(47,*) BIN,BIN,BIN
+     !do  l= 1,totpoints
         !read(21,*)BIN
-     end do
+     !end do
    end do
 write(6,*) 'preinterest =',preinterest,firstrun
    
@@ -189,7 +191,7 @@ write(6,*) 'preinterest =',preinterest,firstrun
         read(21,*)BIN
      end do
   end do
- write(6,*) 'hehre'
+
 
   
   do t = 1,timeofinterest,1
@@ -200,7 +202,7 @@ write(6,*) 'preinterest =',preinterest,firstrun
      read(47,*)t2,readcomx,readcomy,readcomz
 write(6,*) 'time',t1,t2
      if(t1 /= t2) stop 8
-     write(6,*) 'energy',en(t),t     
+     write(6,*) 'energy',en(t),t,t1     
      do m = 1,nprotein,1
         read(21,*)  BIN,rx,ry,rz
         read(21,*) BIN,bondx,bondy,bondz
@@ -209,7 +211,7 @@ write(6,*) 'time',t1,t2
         chains(m,1)%y = ry/4
         chains(m,1)%z = rz/4
 
-chains(m,1)%bond = 0 
+
         if((chains(m,1)%x-(bondx/4.0) == -0.5) .or. (chains(m,1)%x-(bondx/4.0) == (gridsize-0.5))) chains(m,1)%bond = 1
         if((chains(m,1)%x-(bondx/4.0) == 0.5) .or. (chains(m,1)%x-(bondx/4.0) == -(gridsize-0.5))) chains(m,1)%bond = -1
         if((chains(m,1)%y-(bondy/4.0) == -0.5) .or. (chains(m,1)%y-(bondy/4.0) == (gridsize-0.5))) chains(m,1)%bond = 2
@@ -217,7 +219,6 @@ chains(m,1)%bond = 0
         if((chains(m,1)%z-(bondz/4.0) == -0.5) .or. (chains(m,1)%z-(bondz/4.0) == (gridsize-0.5))) chains(m,1)%bond = 3
         if((chains(m,1)%z-(bondz/4.0) == 0.5) .or. (chains(m,1)%z-(bondz/4.0) == -(gridsize-0.5))) chains(m,1)%bond = -3
         maxl = specieslen(chains(m,1)%type)
-           !if(chains(m,l)%bond ==0) write(6,*) 'no bond allocation',m,l
 
         if(chains(m,1)%bond ==0) write(6,*) 'no bond allocation',m,1
         do l = 2,maxl,1
@@ -229,7 +230,6 @@ chains(m,1)%bond = 0
            chains(m,l)%y = ry/4
            chains(m,l)%z = rz/4
 
-chains(m,l)%bond = 0
            if((chains(m,l)%x-(bondx/4.0) == -0.5) .or. (chains(m,l)%x-(bondx/4.0) == (gridsize-0.5))) chains(m,l)%bond = 1
            if((chains(m,l)%x-(bondx/4.0) == 0.5) .or. (chains(m,l)%x-(bondx/4.0) == -(gridsize-0.5))) chains(m,l)%bond = -1
            if((chains(m,l)%y-(bondy/4.0) == -0.5) .or. (chains(m,l)%y-(bondy/4.0) == (gridsize-0.5))) chains(m,l)%bond = 2
@@ -247,7 +247,7 @@ chains(m,l)%bond = 0
 
 
      call clustercount
-
+!call neighbour
   end do
 
 
@@ -260,47 +260,197 @@ chains(m,l)%bond = 0
   dr = 1.0/binsize
   rho = (totpoints/2)/real(gridsize**3)
 write(29,*) 0,0,0,0,0
-do l = 1,(halfbox*binsize)+1,1
+write(38,*) 0,0,0,0,0,0,0,0,0,0
+write(68,*) 0,0,0,0,0,0,0,0
+
+do l = 1,((gridsize/2)*binsize)+1,1
    do x =1,4*mtype,1
+sum1(x) = 0.0d0
 do kx = 1,l,1
 sum1(x) = sum1(x) + radial(x,kx)
 end do
 end do
 
-     r = real(l)/binsize  
+
+sumall = 0.0d0
+do kx = 1,l,1
+sumall = sumall + allsum(1,kx) + allsum(2,kx)
+end do
+
+
+
+     r = (real(l)/binsize) !-(1.0/(2*real(binsize)))  
      write(29,*)r,summing(1,l)/(norma*4*PI_8*(r**2)*rho*dr),summing(2,l)/(normb*4*PI_8*(r**2)*rho*dr)&
           ,summing(3,l)/(normc*4*PI_8*(r**2)*rho*dr),summing(4,l)/(normd*4*PI_8*(r**2)*rho*dr),&
           summing(5,l)/(norma*4*PI_8*(r**2)*rho*dr),summing(6,l)/(normb*4*PI_8*(r**2)*rho*dr)&
           ,summing(7,l)/(normc*4*PI_8*(r**2)*rho*dr),summing(8,l)/(normd*4*PI_8*(r**2)*rho*dr)
 !write(31,*) r,sum1/norma,sum2/norma,sum3/norma,sum4/norma
-     write(31,*) r,summing(1,l)/norma,summing(2,l)/normb,summing(3,l)/normc,summing(4,l)/normd
+     write(31,*) r,radial(1,l)/norma,radial(2,l)/normb
+!summing(1,l)/norma,summing(2,l)/normb,summing(3,l)/normc,summing(4,l)/normd
      
-        r = real(l-1)/binsize + 1.0     
+        r = (real(l)/binsize)           
         write(38,*) r,sum1(1)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),sum1(2)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),&
           sum1(3)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),sum1(4)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),&
           sum1(5)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),sum1(6)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),&
-          sum1(7)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),sum1(8)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8)
-write(168,*)r,allsum(:,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0))
+          sum1(7)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),sum1(8)/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),&
+        (sum1(3)+sum1(1))/(timeofinterest*(r**3)*(4.0/3.0)*PI_8),(sum1(4)+sum1(2))/(timeofinterest*(r**3)*(4.0/3.0)*PI_8)
 
 
-write(68,*)r,radial(1:4,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0))
+write(68,*) r,radial(:,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)) ,&
+radial(2,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
+radial(3,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
+radial(4,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0))
 
-!write(68,*)r,radial(:,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
-!radial(2,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
-!radial(3,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
-!radial(4,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0))
+!write(168,*)r,allsum(:,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)) !,&
+!allsum(2,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0))
 
+!write(168,*)r,allsum(:,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)) ,&
+! (allsum(1,l)+allsum(2,l))/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0))
 
-!(timeofinterest*(4.0/3.0)*PI_8*((r**3)-((real(l)/binsize)**3)))
+write(168,*)r,allsum(:,l)/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
+ (allsum(1,l)+allsum(2,l))/(timeofinterest*((r**3)-((real(l-1)/binsize)**3))*PI_8*(4.0/3.0)),&
+ sumall/(timeofinterest*(r**3)*PI_8*(4.0/3.0))
+
 
   end do
 
 write(6,*) 'average unbound BULK and CLUSTER:',(real(totunb(:))/timeofinterest)-1
-
+write(6,*) 'cluster neighbours=',clusneigh(:),real(clusneigh(1))/(totunb(1)-1),real(clusneigh(2))/(totunb(2)-1)
+write(6,*) 'bulkneighbours=',bulkneigh(:),real(bulkneigh(1))/(totunb(3)-1),real(bulkneigh(2))/(totunb(4)-1)
+write(6,*)'ratios=',(real(clusneigh(1))/(totunb(1)-1))/(real(bulkneigh(1))/(totunb(3)-1)) &
+,(real(clusneigh(2))/(totunb(2)-1))/(real(bulkneigh(2))/(totunb(4)-1))
+write(6,*) 'FINAL cluster neighbours:',real(totclhist)/timeofinterest
+write(6,*) 'FINAL bulk neighbours:',real(totblhist)/timeofinterest
 
 contains
 
+subroutine neighbour(clnos,bound,content)
+integer,intent(in)::content
+integer,dimension(:),intent(in)::clnos
+integer,dimension(:,:),intent(in)::bound
+integer::m,l,maxl,xp,yp,zp
+integer,dimension(gridsize,gridsize,gridsize)::cpoints,bpoints
+integer,dimension(6):: clhist,blhist
+cpoints(:,:,:) = 0
+bpoints(:,:,:) = 0
+clhist(:) = 0
+blhist(:) = 0
 
+do m = 1,nprotein,1
+maxl = chlen(m)
+if(chains(m,1)%type ==2) then
+if(clnos(m) /= content) then
+do l = 1,maxl
+if (bound(m,l) == 0) then
+if(chains(m,l)%a1 == 0)then
+ bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
+bpoints(modulo(int(chains(m,l)%x)+1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) = &
+bpoints(modulo(int(chains(m,l)%x)+1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a2 == 0) then
+bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
+bpoints(modulo(int(chains(m,l)%x)-1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) = &
+bpoints(modulo(int(chains(m,l)%x)-1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a3 == 0) then
+bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
+bpoints(chains(m,l)%x,modulo(int(chains(m,l)%y)+1-1,gridsize)+1,chains(m,l)%z) = &
+bpoints(chains(m,l)%x,modulo(int(chains(m,l)%y)+1-1,gridsize)+1,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a4 == 0) then
+bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
+bpoints(chains(m,l)%x,modulo(int(chains(m,l)%y)-1-1,gridsize)+1,chains(m,l)%z) = &
+bpoints(chains(m,l)%x,modulo(int(chains(m,l)%y)-1-1,gridsize)+1,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a5 == 0) then
+bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
+bpoints(chains(m,l)%x,chains(m,l)%y,modulo(int(chains(m,l)%z)+1-1,gridsize)+1) = &
+bpoints(chains(m,l)%x,chains(m,l)%y,modulo(int(chains(m,l)%z)+1-1,gridsize)+1) + 1
+end if
+if(chains(m,l)%a6 == 0) then
+bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
+bpoints(chains(m,l)%x,chains(m,l)%y,modulo(int(chains(m,l)%z)-1-1,gridsize)+1) = &
+bpoints(chains(m,l)%x,chains(m,l)%y,modulo(int(chains(m,l)%z)-1-1,gridsize)+1) + 1
+end if
+end if
+end do
+else if(clnos(m) == content) then
+do l = 1,maxl
+if(bound(m,l) == 0) then
+if(chains(m,l)%a1 == 0)then
+ clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+cpoints(modulo(chains(m,l)%x+1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) = &
+cpoints(modulo(chains(m,l)%x+1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a2 == 0) then
+clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+cpoints(modulo(chains(m,l)%x-1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) = &
+cpoints(modulo(chains(m,l)%x-1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a3 == 0) then
+clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+cpoints(chains(m,l)%x,modulo(chains(m,l)%y+1-1,gridsize)+1,chains(m,l)%z) = &
+cpoints(chains(m,l)%x,modulo(chains(m,l)%y+1-1,gridsize)+1,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a4 == 0) then
+clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+cpoints(chains(m,l)%x,modulo(chains(m,l)%y-1-1,gridsize)+1,chains(m,l)%z) = &
+cpoints(chains(m,l)%x,modulo(chains(m,l)%y-1-1,gridsize)+1,chains(m,l)%z) + 1
+end if
+if(chains(m,l)%a5 == 0) then
+clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+cpoints(chains(m,l)%x,chains(m,l)%y,modulo(chains(m,l)%z+1-1,gridsize)+1) = &
+cpoints(chains(m,l)%x,chains(m,l)%y,modulo(chains(m,l)%z+1-1,gridsize)+1) + 1
+end if
+if(chains(m,l)%a6 == 0) then
+clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+cpoints(chains(m,l)%x,chains(m,l)%y,modulo(chains(m,l)%z-1-1,gridsize)+1) = &
+cpoints(chains(m,l)%x,chains(m,l)%y,modulo(chains(m,l)%z-1-1,gridsize)+1) + 1
+end if
+
+
+
+
+!if(chains(m,l)%a6 == 0) clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
+end if
+end do
+end if
+
+end if
+end do
+
+
+do xp = 1,gridsize
+do yp = 1,gridsize
+do zp = 1,gridsize
+if(cpoints(xp,yp,zp)== 1) clhist(1) = clhist(1)+1
+if(cpoints(xp,yp,zp)== 2) clhist(2) = clhist(2)+1
+if(cpoints(xp,yp,zp)== 3) clhist(3) = clhist(3)+1
+if(cpoints(xp,yp,zp)== 4) clhist(4) = clhist(4)+1
+if(cpoints(xp,yp,zp)== 5) clhist(5) = clhist(5)+1
+if(cpoints(xp,yp,zp)== 6) clhist(6) = clhist(6)+1
+
+
+if(bpoints(xp,yp,zp)== 1) blhist(1) = blhist(1)+1
+if(bpoints(xp,yp,zp)== 2) blhist(2) = blhist(2)+1
+if(bpoints(xp,yp,zp)== 3) blhist(3) = blhist(3)+1
+if(bpoints(xp,yp,zp)== 4) blhist(4) = blhist(4)+1
+if(bpoints(xp,yp,zp)== 5) blhist(5) = blhist(5)+1
+if(bpoints(xp,yp,zp)== 6) blhist(6) = blhist(6)+1
+
+
+end do
+end do
+end do
+
+write(6,*) 'Cluster neighbours:',clhist(:)
+write(6,*) 'Bulk neighbours',blhist(:)
+
+do l = 1,6
+totclhist(l) = totclhist(l) + clhist(l)
+totblhist(l) = totblhist(l) + blhist(l)
+end do
+end subroutine neighbour
 
 
   subroutine clustercount
@@ -310,7 +460,7 @@ contains
     logical :: clusyes,adjver,newcl
     type(rprot),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable:: cllist,histcl!,mashist
-    integer :: oldcl,dum1,dum2,zzz,maxclus,normalisedsize,dummy,unbcount,bcount
+    integer ::oldcl,dum1,dum2,zzz,maxclus,normalisedsize,dummy,unbcount,bcount,backupcount
     integer,dimension(:,:),allocatable::cb,conn
     integer,dimension(:),allocatable::maxcluslist,concount
     integer,dimension(:,:),allocatable::bound
@@ -335,7 +485,7 @@ contains
     clusterpop = 0
     clustcount = 0
 
-write(6,*) 'clustercount time',t
+runningclusterlist(:,1) = 0
 
 do m= 1,nprotein,1
 maxl= chlen(m)
@@ -382,22 +532,22 @@ end do
                 do f = l+1,maxback
                    call adjacent(m,l,f,tempcoord,adjver,bdir)              
                    if(adjver.eqv. .true.) then
-                      if(bdir ==1) then
-                         chains(m,l)%a2 = 1
-                         chains(m,f)%a1 = 1
-                      else if(bdir ==-1) then
+                      if(bdir ==-1) then
                          chains(m,l)%a1 = 1
                          chains(m,f)%a2 = 1
-                      else if(bdir ==2) then
+                      else if(bdir ==1) then
+                         chains(m,l)%a2 = 1
+                         chains(m,f)%a1 = 1
+                      else if(bdir ==-2) then
                          chains(m,l)%a3 = 1
                          chains(m,f)%a4 = 1
-                      else if(bdir ==-2) then
+                      else if(bdir ==2) then
                          chains(m,l)%a4 = 1
                          chains(m,f)%a3 = 1
-                      else if(bdir ==3) then
+                      else if(bdir ==-3) then
                          chains(m,l)%a5 = 1
                          chains(m,f)%a6 = 1
-                      else if(bdir ==-3) then
+                      else if(bdir ==3) then
                          chains(m,l)%a6 = 1
                          chains(m,f)%a5 = 1
                       end if
@@ -407,22 +557,22 @@ end do
                 do f = 1,maxlengthss
                    call adjacent(g,l,f,tempcoord,adjver,bdir)              
                    if(adjver.eqv. .true.) then
-                      if(bdir ==1) then
-                         chains(m,l)%a2 = 1
-                         chains(g,f)%a1 = 1
-                      else if(bdir ==-1) then
+                      if(bdir ==-1) then
                          chains(m,l)%a1 = 1
                          chains(g,f)%a2 = 1
-                      else if(bdir ==2) then
+                      else if(bdir ==1) then
+                         chains(m,l)%a2 = 1
+                         chains(g,f)%a1 = 1
+                      else if(bdir ==-2) then
                          chains(m,l)%a3 = 1
                          chains(g,f)%a4 = 1
-                      else if(bdir ==-2) then
+                      else if(bdir ==2) then
                          chains(m,l)%a4 = 1
                          chains(g,f)%a3 = 1
-                      else if(bdir ==3) then
+                      else if(bdir ==-3) then
                          chains(m,l)%a5 = 1
                          chains(g,f)%a6 = 1
-                      else if(bdir ==-3) then
+                      else if(bdir ==3) then
                          chains(m,l)%a6 = 1
                          chains(g,f)%a5 = 1
                       end if
@@ -521,12 +671,19 @@ end do
 
     z = 1
     atconn= 0
-    do m = 1,nprotein
+ backupcount = 0
+   do m = 1,nprotein
        if(clnos(m) == content)then
           maxcluslist(z) = m
+        runningclusterlist(z,1) = m
           z = z+1
+backupcount = backupcount+1
        end if
     end do
+
+call compare(backupcount)
+
+call neighbour(clnos,bound,content)
 
 
     a = 1
@@ -542,27 +699,27 @@ end do
        maxl = chlen(m)
        do l = 1,maxl
           if(bound(m,l) == 0) then
-if((chains(m,l)%a1 == 1) .and. (chains(m,l)%a2 == 1 ).and.  (chains(m,l)%a3 == 1) .and. &
-(chains(m,l)%a4 == 1) .and. (chains(m,l)%a5 == 1) .and. (chains(m,l)%a6 == 1)) then
-    if(clnos(m) == content)then    
-            if(chains(m,l)%type ==1) then
-                   a2clus(a2)%m = m
-                   a2clus(a2)%l = l
-                   a2 = a2+1
-                else if(chains(m,l)%type ==2) then
-                   b2clus(b2)%m = m
-                   b2clus(b2)%l = l
-                   b2 = b2+1
-                end if
-             else if(clnos(m) /= content) then
-                if(chains(m,l)%type ==1) then
-                   a2bulk(c2)%m = m
-                   a2bulk(c2)%l = l
-                   c2 = c2+1
-                else if(chains(m,l)%type ==2) then
-                   b2bulk(d2)%m = m
-                   b2bulk(d2)%l = l
-                   d2 = d2+1
+        if((chains(m,l)%a1 == 1) .and. (chains(m,l)%a2 == 1 ).and.  (chains(m,l)%a3 == 1) .and. &
+        (chains(m,l)%a4 == 1) .and. (chains(m,l)%a5 == 1) .and. (chains(m,l)%a6 == 1)) then
+                if(clnos(m) == content)then    
+                        if(chains(m,l)%type ==1) then
+                                a2clus(a2)%m = m
+                                a2clus(a2)%l = l
+                                a2 = a2+1
+                        else if(chains(m,l)%type ==2) then
+                                b2clus(b2)%m = m
+                                b2clus(b2)%l = l
+                                b2 = b2+1
+                        end if
+                else if(clnos(m) /= content) then
+                        if(chains(m,l)%type ==1) then
+                                a2bulk(c2)%m = m
+                                a2bulk(c2)%l = l
+                                c2 = c2+1
+                        else if(chains(m,l)%type ==2) then
+                                b2bulk(d2)%m = m
+                                b2bulk(d2)%l = l
+                                d2 = d2+1
                 end if
              end if
 
@@ -613,20 +770,12 @@ end if
        end do
 
        dummy = a+b+c+d-4
-
+       write(6,*) 'bound =',bcount,'unbound=',unbcount,'total=',dummy
 
 totunb(1) = totunb(1) + a
 totunb(2) = totunb(2) + b
 totunb(3) = totunb(3) + c
 totunb(4) = totunb(4) + d
-
-
-
-       write(6,*) 'bound =',bcount,'unbound=',unbcount,'total=',dummy
-
-write(6,*) 'precom time',t
-
-
 
 do m =1,nprotein
 call comfind(m)
@@ -637,24 +786,24 @@ write(6,*) 'postcom time',t
 
     call phase(content,maxclus,clnos,cb,dpcomcluster)
 
-if(int(dpcomcluster%x) /= int(readcomx)) write(6,*) 'FAILLLLLL',dpcomcluster%x,readcomx
-if(int(dpcomcluster%y) /= int(readcomy)) write(6,*)'FAILLLLLL',dpcomcluster%y,readcomy
-if(int(dpcomcluster%z) /= int(readcomz)) write(6,*)'FAILLLLLL',dpcomcluster%z,readcomz
- 
-
-write(6,*) 'prepair time',t
 
 comx = dpcomcluster%x
 comy = dpcomcluster%y
 comz = dpcomcluster%z
+
+!comx = readcomx
+!comy = readcomy
+!comz = readcom
+write(6,*) 'COM values', comx,comy,comz
     call paircorrelation(a,b,c,d,a2,b2,c2,d2,comx,comy,comz)
 !write(6,*) 'energy',en(1),timeofinterest
 
+call rdf(comx,comy,comz)
+
     if (nint(initialenergy) /= nint(en(t))) then
-       write(6,*) 'FAIL energy',t,initialenergy,en(t)
+       write(6,*) 'energyfail!!!!!!!!!!!!!!',t,initialenergy,en(t)
     end if
 
-call rdf(comx,comy,comz)
 
 
     deallocate(cllist)
@@ -663,6 +812,48 @@ call rdf(comx,comy,comz)
     deallocate(histcl)
   end subroutine clustercount
 
+subroutine compare(backupcount)
+integer,intent(inout)::backupcount
+integer :: a,leave,join
+
+
+leave = 0
+join = 0
+do a = 1,nprotein,1
+if(ANY(runningclusterlist(:,1) .eq. a)) then
+        if(ANY(runningclusterlist(:,2) .eq. a)) then
+        continue
+        else
+        join = join + 1
+        end if
+end if
+
+if(ANY(runningclusterlist(:,2) .eq. a)) then
+        if(ANY(runningclusterlist(:,1) .eq. a)) then
+        continue
+        else
+        leave = leave + 1
+        end if
+end if
+
+end do
+
+open(99,file='stability.dat',action = 'write')
+write(99,*) join,leave,join-leave
+close(99)
+
+runningclusterlist(:,2) = 0
+
+do a = 1,backupcount,1
+runningclusterlist(a,2) = runningclusterlist(a,1)
+end do
+
+
+
+
+
+
+end subroutine compare
 
 
 
@@ -701,80 +892,16 @@ call rdf(comx,comy,comz)
            comz = comz + ((maxl+1-l)*dcomz)
         end do
         !write(6,*) 'deltas',comx,comy,comz
-        com(1,m)%x = modulo(chains(m,1)%x +(real(comx)/(maxl))-1,real(gridsize))+1
-        com(1,m)%y = modulo(chains(m,1)%y +(real(comy)/(maxl))-1,real(gridsize))+1
-        com(1,m)%z = modulo(chains(m,1)%z +(real(comz)/(maxl))-1,real(gridsize))+1
+        com(1,m)%x = modulo(chains(m,1)%x+(real(comx)/(maxl))-1,real(gridsize))+1
+        com(1,m)%y = modulo(chains(m,1)%y+(real(comy)/(maxl))-1,real(gridsize))+1
+        com(1,m)%z = modulo(chains(m,1)%z+(real(comz)/(maxl))-1,real(gridsize))+1
         !end do
         !if((com(1,1)%y>1500) .and.(com(1,1)%y<2500))write(6,*)
         !'com',time,com(1,1)%y,chains(1,1)%y,comy
         !write(6,*) 'commmm 2'
-    
+
   end subroutine comfind
 
-subroutine rdf(comx,comy,comz)
-double precision,intent(in)::comx,comy,comz
-integer :: m,l,maxl,lx
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-
-    do m = 1,nprotein
-       maxl = chlen(m)
-       do l = 1,maxl
-          dx = min(abs(chains(m,l)%x - comx), gridsize -abs(chains(m,l)%x -comx))
-          dy = min(abs(chains(m,l)%y - comy), gridsize -abs(chains(m,l)%y -comy))
-          dz = min(abs(chains(m,l)%z - comz), gridsize -abs(chains(m,l)%z -comz))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-
-            allsum(chains(m,l)%type,lx+1) =allsum(chains(m,l)%type,lx+1)+1.0
-       end do
-       end do
-
-
-
-end subroutine rdf
-
-
-subroutine phase(mz,clsize,clnos,cb,dpcomcluster)
-    integer :: m,l,maxl,h,a,totcluspop,rogpop,maxrogpop,g
-    double precision :: radofgy,maxradofgy
-    type(centremass)::avepos,sumsq
-    integer,intent(inout)::clsize,mz
-    integer,dimension(:),allocatable::cllist
-    integer,dimension(:,:),allocatable:: route
-    integer,dimension(:),allocatable::rcounter,checklist
-    integer,dimension(:,:),intent(inout)::cb
-    integer,dimension(:),intent(inout)::clnos
-    type(basicp) :: comcluster
-    type(rprot),intent(inout) :: dpcomcluster
-    logical :: toolarge
-
-    toolarge = .FALSE.
-    rogpop = 0
-    allocate(cllist(clsize))
-    allocate(route(nprotein,clsize))
-    allocate(rcounter(nprotein))
-    allocate(checklist(clsize))
-
-    cllist(1) =mz
-    h = 2
-    do a = 1,nprotein
-       if(clnos(a) == clnos(mz)) then
-          if(a/=mz) then
-             cllist(h) = a
-             h = h + 1
-          end if
-       end if
-    end do
-write(6,*) 'phase 1 time',t
-    call clustercom(mz,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge,dpcomcluster)
-write(6,*) 'phase2 time',t
-  end subroutine phase
 
   subroutine adjacent(pr,ch1,ch2,tempory,adjver,bdir)
     integer,intent(in):: pr,ch1,ch2
@@ -835,13 +962,80 @@ write(6,*) 'phase2 time',t
 
   end subroutine adjacent
 
+subroutine phase(mz,clsize,clnos,cb,dpcomcluster)
+    integer :: m,l,maxl,h,a,totcluspop,rogpop,maxrogpop,g
+    double precision :: radofgy,maxradofgy
+    type(centremass)::avepos,sumsq
+    integer,intent(inout)::clsize,mz
+    integer,dimension(:),allocatable::cllist
+    integer,dimension(:,:),allocatable:: route
+    integer,dimension(:),allocatable::rcounter,checklist
+    integer,dimension(:,:),intent(inout)::cb
+    integer,dimension(:),intent(inout)::clnos
+    type(basicp) :: comcluster
+    type(rprot),intent(inout) :: dpcomcluster
+    logical :: toolarge
+
+    toolarge = .FALSE.
+    rogpop = 0
+    allocate(cllist(clsize))
+    allocate(route(nprotein,clsize))
+    allocate(rcounter(nprotein))
+    allocate(checklist(clsize))
+
+    cllist(1) =mz
+    h = 2
+    do a = 1,nprotein
+       if(clnos(a) == clnos(mz)) then
+          if(a/=mz) then
+             cllist(h) = a
+             h = h + 1
+          end if
+       end if
+    end do
+write(6,*) 'phase 1 time',t
+    call clustercom(mz,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge,dpcomcluster)
+write(6,*) 'phase2 time',t
+  end subroutine phase
+
+
+
+subroutine rdf(comx,comy,comz)
+double precision,intent(in)::comx,comy,comz
+integer :: m,l,maxl,lx
+    double precision :: dx,dy,dz
+    double precision :: delta
+
+
+
+    do m = 1,nprotein
+       maxl = chlen(m)
+       do l = 1,maxl
+          dx = min(abs(chains(m,l)%x - comx), gridsize -abs(chains(m,l)%x - comx))
+          dy = min(abs(chains(m,l)%y - comy), gridsize -abs(chains(m,l)%y - comy))
+          dz = min(abs(chains(m,l)%z - comz), gridsize -abs(chains(m,l)%z - comz))
+
+   delta = sqrt((dx**2)+(dy**2)+(dz**2))
+
+   lx = INT(delta/(1.0/binsize))
+
+
+            allsum(chains(m,l)%type,lx+1) =allsum(chains(m,l)%type,lx+1)+1.0
+       end do
+       end do
+
+
+
+end subroutine rdf
+
+
 
   subroutine clustercom(m,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge,dpcomcluster)
           integer,intent(in)::m
           integer,intent(inout)::clsize,totcluspop
           integer,dimension(:),intent(inout) ::cllist,rcounter,checklist
           integer,dimension(:,:),intent(inout) ::cb,route
-          integer :: a,b,base,maxl,maxb,ra,cdint,centralchain,f,g,cench,rc,zx,maxltest
+          integer ::a,b,base,maxl,maxb,ra,dint,centralchain,f,g,cench,rc,zx,maxltest
           double precision :: delx,dely,delz
           double precision,dimension(:,:),allocatable::comx,comy,comz
           logical,intent(inout) :: toolarge
@@ -876,13 +1070,13 @@ write(6,*) 'phase2 time',t
           if(clsize ==1) goto 76
 
 
-          do cdint =1,nprotein
-             rcounter(cdint) = 0
+          do dint =1,nprotein
+             rcounter(dint) = 0
           end do
 
           do b = 1,clsize
-             do cdint = 1,nprotein
-                route(cdint,b) = 0
+             do dint = 1,nprotein
+                route(dint,b) = 0
              end do
              checklist(b) = 0
           end do
@@ -931,11 +1125,11 @@ write(6,*) 'phase2 time',t
           zx = 2
 
 
-          do cdint = 1,clsize
-             cench = checklist(cdint)
+          do dint = 1,clsize
+             cench = checklist(dint)
              !write(6,*) 'checklist',checklist(dint)
 
-             maxl = chlen(cdint)
+             maxl = chlen(dint)
              totcluspop = totcluspop + maxl
 
              do b = 1,clsize
@@ -983,15 +1177,23 @@ write(6,*) 'phase2 time',t
           !write(6,*) centralchain
           !write(6,*) 'runtime', com(1,centralchain)%x
           !write(6,*) dummycom%x
-          comcluster%x = INT(modulo((com(1,centralchain)%x) +(dummycom%x/totcluspop)-1,real(gridsize))+1)
-          comcluster%y = INT(modulo((com(1,centralchain)%y) +(dummycom%y/totcluspop)-1,real(gridsize))+1)
-          comcluster%z = INT(modulo((com(1,centralchain)%z) +(dummycom%z/totcluspop)-1,real(gridsize))+1)
+          comcluster%x = INT(modulo((com(1,centralchain)%x)+(dummycom%x/totcluspop)-1,real(gridsize))+1)
+          comcluster%y = INT(modulo((com(1,centralchain)%y)+(dummycom%y/totcluspop)-1,real(gridsize))+1)
+          comcluster%z = INT(modulo((com(1,centralchain)%z)+(dummycom%z/totcluspop)-1,real(gridsize))+1)
 
 
-          dpcomcluster%x = modulo((com(1,centralchain)%x) +(dummycom%x/totcluspop)-1,real(gridsize))+1
-          dpcomcluster%y = modulo((com(1,centralchain)%y) +(dummycom%y/totcluspop)-1,real(gridsize))+1
-          dpcomcluster%z = modulo((com(1,centralchain)%z) +(dummycom%z/totcluspop)-1,real(gridsize))+1
+          dpcomcluster%x = modulo((com(1,centralchain)%x)+(dummycom%x/totcluspop)-1,real(gridsize))+1
+          dpcomcluster%y = modulo((com(1,centralchain)%y)+(dummycom%y/totcluspop)-1,real(gridsize))+1
+          dpcomcluster%z = modulo((com(1,centralchain)%z)+(dummycom%z/totcluspop)-1,real(gridsize))+1
           write(3,*) time,dpcomcluster%x,dpcomcluster%y,dpcomcluster%z
+
+
+if(int(dpcomcluster%x) /= int(readcomx)) write(6,*)'FAILLLLLL',dpcomcluster%x,readcomx
+if(int(dpcomcluster%y) /= int(readcomy))write(6,*)'FAILLLLLL',dpcomcluster%y,readcomy
+if(int(dpcomcluster%z) /= int(readcomz))write(6,*)'FAILLLLLL',dpcomcluster%z,readcomz
+
+
+
 
 53        if(compass .eqv. .true.) continue
 
@@ -1091,8 +1293,6 @@ write(6,*) 'phase2 time',t
         end subroutine comlargecomp
 
 
-
-
   subroutine paircorrelation(a,b,c,d,a2,b2,c2,d2,comx,comy,comz)
     integer,intent(in)::a,b,c,d,a2,b2,c2,d2
     integer::k,h
@@ -1143,10 +1343,10 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+             !if(lx ==0) lx =1
              if(abs(lx)>(gridsize*binsize)) goto 75
 
-             summing(1,lx) = summing(1,lx)+(1.0) !/((a-1)**2))
+             summing(1,lx+1) = summing(1,lx+1)+(1.0) !/((a-1)**2))
 
 75           continue
           end do
@@ -1192,10 +1392,10 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
-             if(abs(lx)>(gridsize*binsize)) goto 95
+             !if(lx ==0) lx =1
+             if(abs(lx+1)>(gridsize*binsize)) goto 95
 
-             summing(2,lx) = summing(2,lx)+(1.0) !/((b-1)**2))
+             summing(2,lx+1) = summing(2,lx+1)+(1.0) !/((b-1)**2))
 
 95           continue
           end do
@@ -1243,10 +1443,10 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+            ! if(lx ==0) lx =1
              if(abs(lx)>(gridsize*binsize)) goto 45
 
-             summing(3,lx) = summing(3,lx)+(1.0) !/((c-1)**2))
+             summing(3,lx+1) = summing(3,lx+1)+(1.0) !/((c-1)**2))
 
 45           continue
           end do
@@ -1291,11 +1491,11 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+             !if(lx ==0) lx =1
              
              if(abs(lx)>(gridsize*binsize))     goto 55
              
-             summing(4,lx) = summing(4,lx)+(1.0) !/((d-1)**2))
+             summing(4,lx+1) = summing(4,lx+1)+(1.0) !/((d-1)**2))
 
 55           continue
           end do
@@ -1341,10 +1541,10 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+             !if(lx ==0) lx =1
 
 
-             summing(5,lx) = summing(5,lx)+(1.0) !/((a-1)**2))
+             summing(5,lx+1) = summing(5,lx+1)+(1.0) !/((a-1)**2))
 
           end do
        end do
@@ -1387,10 +1587,10 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+             !if(lx ==0) lx =1
 
 
-             summing(6,lx) = summing(6,lx)+(1.0) !/((b-1)**2))
+             summing(6,lx+1) = summing(6,lx+1)+(1.0) !/((b-1)**2))
 
              end do
        end do
@@ -1435,10 +1635,10 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+             !if(lx ==0) lx =1
 
 
-             summing(7,lx) = summing(7,lx)+(1.0) !/((c-1)**2))
+             summing(7,lx+1) = summing(7,lx+1)+(1.0) !/((c-1)**2))
 
           end do
        end do
@@ -1482,11 +1682,11 @@ double precision, intent(in)::comx,comy,comz
              delta = sqrt((dx**2)+(dy**2)+(dz**2))
 
              lx = INT(delta/(1.0/binsize))
-             if(lx ==0) lx =1
+             !if(lx ==0) lx =1
              
 
              
-             summing(8,lx) = summing(8,lx)+(1.0) !/((d-1)**2))
+             summing(8,lx+1) = summing(8,lx+1)+(1.0) !/((d-1)**2))
 
 
           end do
