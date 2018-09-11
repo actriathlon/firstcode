@@ -50,18 +50,26 @@ end type
   type(listt),dimension(:),allocatable:: abulk,bbulk,aclus,bclus,a2bulk,a2clus,b2clus,b2bulk
   type(rprot2),dimension(:,:),allocatable :: chains
 
-
-  open(21, file = 'movetagged.vtf', action = 'read')
+open(211,file = 'connectivitytracker',action = 'write')
+open(712,file= 'inputp.dat',action='write')
+  open(21, file = 'm.vtf', action = 'read')
   open(29, file = 'RDF.dat', action = 'write')
   open(31, file = 'unnormRDF.dat', action = 'write')
-  open(39, file='energy.dat',action='read')
+  open(39, file='e.dat',action='read')
   open(38, file = 'freesitedist.dat', action = 'write')
-  open(47, file='coms.dat',action='read')
+  open(47, file='c.dat',action='read')
   open(68,file ='unbounddensity.dat',action='write')
 open(168,file='densitybeadspershell.dat',action='write')  
+open(196,file='availablesites.dat',action='write')
+open(99,file = 'stability.dat',action = 'write')
+close(99)
+!open(196,file='availablesites.dat',action = 'write')
+
+!write(168,*) 'FAIL'
+!write(6,*) 'FAAAAAAAAAAAAAAAAAAAAAAIIIIIIIIIIIIIIIIIILLLLLLLLLLLLLLLLLLL'
 isbond = .true.
   call read_setup
-  write(6,*) 'mytype',mtype,'int 0',int(0.2),int(1.2),int(-0.2),int(-1.2)
+  write(6,*) 'mytype',mtype,'int 0',int(0.8),int(1.2),int(-0.2),int(-1.2)
 
   do ft = 1,mtype
      do gt = 1,mtype
@@ -322,6 +330,9 @@ write(6,*)'ratios=',(real(clusneigh(1))/(totunb(1)-1))/(real(bulkneigh(1))/(totu
 write(6,*) 'FINAL cluster neighbours:',real(totclhist)/timeofinterest
 write(6,*) 'FINAL bulk neighbours:',real(totblhist)/timeofinterest
 
+write(712,*) int((real(totunb(2))/timeofinterest)-1),int((real(totunb(4))/timeofinterest)-1),clusneigh(2),bulkneigh(2)
+
+
 contains
 
 subroutine neighbour(clnos,bound,content)
@@ -507,8 +518,11 @@ end do
        concount(m) =0
        do a =1,maxlength
           bound(m,a) = 0
+        conn(m,a) = 0
        end do
-    end do
+    
+
+end do
 
     a = 1
 
@@ -583,7 +597,29 @@ end do
                          !bound(m,l) = 1
                          !bound(g,f) = 1
                          if(interen(chains(m,l)%type,chains(g,f)%type) < 0.0) then
-                            initialenergy = initialenergy + interen(chains(m,l)%type,chains(g,f)%type)    
+                     
+
+
+                        if(any(conn(m,:) .eq. g)) then
+                            goto 63
+                         else
+                            concount(m) = concount(m) + 1
+                            conn(m,concount(m)) = g
+                         end if
+63                       continue
+
+                         if(any(conn(g,:) .eq. m)) then
+                            goto 83
+                         else
+                            concount(g) = concount(g) + 1
+                            conn(g,concount(g)) = m
+                         end if
+83                       continue
+
+
+
+
+       initialenergy = initialenergy + interen(chains(m,l)%type,chains(g,f)%type)    
                             if(clnos(g) < clnos(m)) then
                                oldcl = clnos(m)
                                do zzz = 1,nprotein
@@ -601,6 +637,26 @@ end do
                       if((bdir == chains(g,f)%bond) .and. (bdir == (-1*chains(m,l)%bond)) .and. &
                            (interenergy(chains(g,f)%type,chains(m,l)%type)  < 0.0)) then
                          initialenergy = initialenergy + interenergy(chains(m,l)%type,chains(g,f)%type) 
+
+
+
+                 if(any(conn(m,:) .eq. g)) then
+                         goto 65
+                      else
+                         concount(m) = concount(m) + 1
+                         conn(m,concount(m)) = g
+                      end if
+65                    continue
+
+                      if(any(conn(g,:) .eq. m)) then
+                         goto 85
+                      else
+                         concount(g) = concount(g) + 1
+                         conn(g,concount(g)) = m
+                      end if
+85                    continue
+
+
                          !write(6,*) 'energy update',interenergy(chains(m,l)%type,chains(g,f)%type),initialenergy
 !if(bound(g,f) ==1) write(6,*) 'already bound!!!!!!!!!!!!!!!'
                          bound(m,l) = 1
@@ -673,6 +729,7 @@ end do
     atconn= 0
  backupcount = 0
    do m = 1,nprotein
+      if(chains(m,1)%type==1) atconn = atconn+concount(m)
        if(clnos(m) == content)then
           maxcluslist(z) = m
         runningclusterlist(z,1) = m
@@ -680,6 +737,33 @@ end do
 backupcount = backupcount+1
        end if
     end do
+
+   cconn =0
+    acconn =0
+
+    do m = 1,maxclus
+       g = maxcluslist(m)
+       cconn = cconn + concount(g)
+       if(chains(g,1)%type ==1) acconn = acconn+concount(g)
+       !maxclusenergy = maxclusenergy + chen(g)
+    end do
+
+    tconn=sum(concount(:))
+
+   onepop = 0
+    do m = 1,maxclus
+       g = maxcluslist(m)
+       if(chains(g,1)%type ==1) onepop = onepop+1
+    end do
+
+
+
+write(6,*) 'connectivity',acconn,cconn-acconn,atconn-acconn,tconn-((atconn-acconn)+cconn)
+write(6,*) 'CONNECTIVITY RATIOS',real(acconn)/onepop,real(cconn-acconn)/(maxclus-onepop),&
+real(atconn-acconn)/(speciespop(1) - onepop),real(tconn-((atconn-acconn)+cconn))/(speciespop(2)-(maxclus-onepop))
+Write(6,*) 'CLUSTER SETUP',onepop,maxclus-onepop,speciespop(1) - onepop,speciespop(2) - (maxclus-onepop)
+write(211,*) t,real(acconn)/onepop,real(cconn-acconn)/(maxclus-onepop),&
+real(atconn-acconn)/(speciespop(1) - onepop),real(tconn-((atconn-acconn)+cconn))/(speciespop(2)-(maxclus-onepop))
 
 call compare(backupcount)
 
@@ -758,7 +842,10 @@ end if
     end do
     write(6,*) 'aclus',a,'bclus',b,'abulk',c,'bbulk',d,en(t),maxclus
     write(6,*) 'a2clus',a2,'b2clus',b2,'a2bulk',c2,'b2bulk',d2,en(t),maxclus
-    bcount = 0
+    write(196,*) a,b,c,d,en(t),maxclus
+   !write(96,*) 'FAIL' 
+
+bcount = 0
     unbcount =0
       do m = 1,nprotein
        maxl = chlen(m)
@@ -838,7 +925,7 @@ end if
 
 end do
 
-open(99,file='stability.dat',action = 'write')
+open(99,file='stability.dat',access = 'append')
 write(99,*) join,leave,join-leave
 close(99)
 

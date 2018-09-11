@@ -12,7 +12,7 @@ program move
   integer :: seed,natoms,maxtime,reptbackward,reptforward,equilib,cltacc,cltatt,binsize,normaliser
   integer :: successful,reject,maxlength1,maxlength2,q,d,u,sm,qt,ft,gt,scans,nclients,phasecount
   integer:: rerej,reacc,nprotein1,nprotein2,nspecies,mtype,freezetime,nclientspecies,nscaffold
-  integer,dimension(:,:),allocatable :: bonddd,study,sumclient,visit,visit2
+  integer,dimension(:,:),allocatable ::bonddd,study,sumclient,visit,visit2,unbound
   integer,dimension(:),allocatable :: chlen,speciespop,specieslen,clientlist,specieslinker
   integer,dimension(:),allocatable:: clnos
   !integer,dimension(:),allocatable::
@@ -20,7 +20,8 @@ program move
   double precision,dimension(:),allocatable::chen
   double precision,dimension(:,:),allocatable :: interenergy,interen,intraenergy
   real, external :: ran2
-  real,dimension(:),allocatable :: variance,disp
+!character(len = 10) :: commandread  
+real,dimension(:),allocatable :: variance,disp
   real,dimension(:,:),allocatable:: summing,vdist,freesites,clusdist
   logical :: exist,fail,finalfail,debugyes,film,isbond,clt,clr,noinfo,scalinginfo,nobonds,restart
   real::start,finish,midpoint,choose1
@@ -82,9 +83,16 @@ telrej = 0
   !noinfo = .false.
   call read_setup
 
-  write(6,*) 'CLIENTINFO',clientlength 
+ !call get_command_argument(1,commandread)
+  !read(commandread, '(i3)') freezetime
+
+
+
+  write(6,*) 'CLIENTINFO',clientlength!,freezetime 
   allocate(sumclient(nclients,2*(clientlength+1)))
-  sumclient(:,:) = 0
+allocate(unbound(nclients,clientlength))
+unbound(:,:) = 0  
+sumclient(:,:) = 0
 suffclust = .false.
   nprotein = sum(speciespop)
   write(6,*) 'nprotein = ', nprotein
@@ -92,7 +100,7 @@ suffclust = .false.
   write(6,*) 'maxlength =',maxlength
   open(21, file = '../movetagged.vtf', action = 'read')
   if(restart .eqv. .false.) then
-     open(23, file = 'initialtake2.xyz', action = 'read')
+     !open(23, file = 'initialtake2.xyz', action = 'read')
      if(noinfo .eqv. .true.) then
         open(11,file='scalingdata.dat',action = 'write')
         open(82,file = 'newclusterdata.dat', action = 'write')
@@ -226,6 +234,7 @@ open(161,file='dimens.dat',action='write')
   allocate(clnos(nprotein))
   allocate(vdist(4*clientlength,gridsize))
 allocate(clusdist(mtype,gridsize))
+
   phasecount = 0
 vdist(:,:) = 0
   visit(:,:) = 0
@@ -444,7 +453,7 @@ contains
        end do
     end do
     do a = 1,nclients
-       write(108,*) sumclient(a,:),sumsep/sumclient(a,clientlength+1),bulksumsep/sumclient(a,2*(clientlength+1))
+       write(108,*) sumclient(a,:),sumsep/sumclient(a,clientlength+1),bulksumsep/sumclient(a,2*(clientlength+1)),unbound(a,:)
     end do
 
 
@@ -513,7 +522,7 @@ open(251,file = 'freedist.dat',action = 'write')
     maxl = 1
     l=1
 
-tele = ran2(seed)-0.5
+tele = -0.5 !ran2(seed)-0.5
 
 if(tele> 0.0) then
 
@@ -528,9 +537,9 @@ if(tele> 0.0) then
 
 15  continue
 
-    dx = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-    dy = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-    dz = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+    dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+    dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+    dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
 
 
 
@@ -692,9 +701,9 @@ end if
 15          continue
 
 !write(6,*) 'linkerlen',protcoords(m,l)%linker
-               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,l-1)%linker))
-               dy = nint((ran2(seed)-0.5)*(2*protcoords(m,l-1)%linker))
-               dz = nint((ran2(seed)-0.5)*(2*protcoords(m,l-1)%linker))
+               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
+               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
+               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
 
 
 
@@ -1048,9 +1057,9 @@ call rdf(m,l)
             lx = INT(separation/(1.0/binsize))
             summing(2,lx) = summing(2,lx)+1
             
-            do g = 1,clientlength,1
-               sumclient(a,g) = sumclient(a,g) + study(a,g)
-            end do
+            !do g = 1,clientlength,1
+            !   sumclient(a,g) = sumclient(a,g) + study(a,g)
+            !end do
             sumclient(a,clientlength+1) =  sumclient(a,clientlength+1) + 1
             
             sumsep = sumsep + separation
@@ -1063,9 +1072,9 @@ call rdf(m,l)
             lx = INT(separation/(1.0/binsize))
             summing(1,lx) = summing(1,lx)+1
             
-            do g = 1,clientlength,1
-               sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-            end do
+            !do g = 1,clientlength,1
+            !   sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
+            !end do
             sumclient(a,2*(clientlength+1)) =  sumclient(a,2*(clientlength+1)) + 1
             
             bulksumsep = bulksumsep + separation
@@ -1074,23 +1083,49 @@ call rdf(m,l)
          end if
          
          
-      else if(control<=1) then
+  do g = 1,clientlength,1
+if(clust(g) .eqv. .true.) then             
+  sumclient(a,g) = sumclient(a,g) + study(a,g)
+else if(clust(g) .eqv. .false.) then
+sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
+end if
+            end do
+
+
+
+      else if(control==1) then
          !write(108,*) time,study(a,1),study(a,2),0.0,0.0
-         
+     
+
+
+ do g = 1,clientlength,1
+if(clust(g) .eqv. .true.) then
+  sumclient(a,g) = sumclient(a,g) + study(a,g)
+else if(clust(g) .eqv. .false.) then
+sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
+end if
+            end do
+    
          
          !call rdf(m,dj)
-         if(ANY(clust(:) .eqv. .true.)) then
-            do g = 1,clientlength,1
-               sumclient(a,g) = sumclient(a,g) + study(a,g)
-            end do
-         else
-            do g = 1,clientlength,1
-               sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-            end do
+         !if(ANY(clust(:) .eqv. .true.)) then
+         !   do g = 1,clientlength,1
+         !      sumclient(a,g) = sumclient(a,g) + study(a,g)
+         !   end do
+         !else
+         !   do g = 1,clientlength,1
+         !      sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
+         !   end do
             
             
-         end if
+!         end if
+!else if (control == 0)
+
       end if
+
+do g = 1,clientlength
+if(study(a,g) ==0) unbound(a,g) =unbound(a,g)+1
+end do
 
       if(clientlength == 3) then
          if(ANY(clust(:) .eqv. .true.)) then      
@@ -1732,9 +1767,9 @@ maxl = chlen(m)
 15          continue
 
 !write(6,*) 'linkerlen',protcoords(m,l)%linker
-               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,l-1)%linker))
-               dy = nint((ran2(seed)-0.5)*(2*protcoords(m,l-1)%linker))
-               dz = nint((ran2(seed)-0.5)*(2*protcoords(m,l-1)%linker))
+               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
+               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
+               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
 
 
 
@@ -1863,7 +1898,7 @@ scans = 1
     integer :: m,l,deltax1,deltax2,deltay1,deltay2,deltaz1,deltaz2,dx,dy,dz,bdir,str
     double precision :: deltaenergy
     logical :: rac,racc,adjver
-    integer:: st,pr,maxl,maxback
+    integer:: st,pr,maxl,maxback,decide
     !double precision::sumdebug
     type(prottemp),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable::tbo
@@ -1891,15 +1926,53 @@ if(maxl ==1) then
        !write(6,*) 'positioning'
 
 
-15     continue
+!15     continue
        
-               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-               dy = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-               dz = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+!               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+ !              dy = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+ !              dz = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+
+decide = int(ran2(seed)*3)+1
+
+SELECT CASE (decide)
+
+CASE (1)
+dx = 1
+CASE (2)
+dx = 0
+CASE (3)
+dx = -1
+
+END SELECT
+
+decide = int(ran2(seed)*3)+1
+
+SELECT CASE (decide)
+
+CASE (1)
+dy = 1
+CASE (2)
+dy = 0
+CASE (3)
+dy = -1
+
+END SELECT
+
+decide = int(ran2(seed)*3)+1
+
+SELECT CASE(decide)
+
+CASE (1)
+dz = 1
+CASE (2)
+dz = 0
+CASE (3)
+dz = -1
+
+END SELECT
 
 
-
-               if((dx**2 + dy**2 + dz**2) > protcoords(m,1)%linker) goto 15
+               !if((dx**2 + dy**2 + dz**2) > protcoords(m,1)%linker) goto 15
                
 
 
@@ -1919,7 +1992,8 @@ if(l>1) then
 
  sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
     if(sumdebug > protcoords(m,1)%linker) then
-       goto 15
+       rac = .false.
+        goto 37
     end if
     end if
 
@@ -1934,7 +2008,8 @@ if(l>1) then
 
     sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
     if(sumdebug > protcoords(m,1)%linker) then
-       goto 15
+        rac = .false.
+        goto 37
     end if
 end if
 
@@ -2891,13 +2966,13 @@ macc = macc + 1
 
 19     continue
        
-               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-               dy = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-               dz = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
 
 
 
-               if((dx**2 + dy**2 + dz**2) > protcoords(m,1)%linker) goto 19
+               if(sqrt(real((dx**2 + dy**2 + dz**2))) > protcoords(m,1)%linker) goto 19
 
 
 
@@ -3021,7 +3096,7 @@ reacc = reacc +1
 
 
 
-               if((dx**2 + dy**2 + dz**2) > protcoords(m,1)%linker) goto 15
+               if(sqrt(real((dx**2 + dy**2 + dz**2))) > protcoords(m,1)%linker) goto 15
 
 
        tempcoord(maxl)%x = modulo(protcoords(m,maxl)%x + dx-1,gridsize)+1

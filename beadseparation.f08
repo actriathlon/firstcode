@@ -6,8 +6,8 @@ program move
   integer,dimension(:),allocatable::type
   double precision,dimension(:),allocatable::coordx,coordy,coordz,en
   integer::totpoints,n,m,l,t,j,lx,timeofinterest,dummymax,count,e,maxlength
-integer::totmono,totdi,totclus,totmonoc,totdic,totclusc,maxlink
-  double precision::bondx,bondy,bondz,rx,ry,rz,rr
+integer::totmonoc,totdic,totclusc,maxlink,totbulkc
+  double precision::bondx,bondy,bondz,rx,ry,rz,rr,totmono,totdi,totclus,totbulk
   integer,dimension(:),allocatable :: chlen,speciespop,specieslen,linklen
   double precision::delta,r,dr,rho,intraen,totiso
   real,dimension(:,:),allocatable::summing
@@ -40,7 +40,8 @@ totclus = 0
 totmonoc = 0
 totdic = 0
 totclusc = 0
-
+totbulk = 0
+totbulkc = 0
   open(21, file = 'movetagged.vtf', action = 'read')
   open(29, file = 'sepvals.dat', action = 'write')
   open(31, file = 'unnormRDF.dat', action = 'write')
@@ -151,7 +152,7 @@ write(6,*) 'preinterest =',preinterest
 
   
   do t = 1,timeofinterest
-
+time = t
      read(21,*) BIN
      read(21,*) BIN
      read(39,*) BIN,en(t)
@@ -204,9 +205,10 @@ do lx = 1,maxlink*binsize,1
         rr = lx/real(binsize)
 write(49,*) rr,summing(1,lx)/totmonoc,summing(2,lx)/totdic,summing(3,lx)/totclusc
 
-write(29,*) real(totmono)/totmonoc,real(totdi)/totdic,real(totclus)/totclusc
+!write(29,*) real(totmono)/totmonoc,real(totdi)/totdic,real(totclus)/totclusc
 end do
 
+write(29,*)real(totmono)/totmonoc,real(totdi)/totdic,real(totclus)/totclusc,totbulk/totbulkc
 
 
 contains
@@ -223,7 +225,9 @@ contains
     type(rprot),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable:: cllist,histcl!,mashist
     integer :: oldcl,dum1,dum2,zzz,maxclus,normalisedsize,dummy,unbcount,bcount
-    integer,dimension(:,:),allocatable::cb,conn
+integer :: bulkcount
+double precision :: bulkmax    
+integer,dimension(:,:),allocatable::cb,conn
     integer,dimension(:),allocatable::maxcluslist,concount
     integer,dimension(:,:),allocatable::bound
  double precision::maxclusenergy,initialenergy,sepmono,sepdi,sepmax,totsep
@@ -244,7 +248,8 @@ sepmaxcount = 0
 sepmono = 0.0d0
 sepdi = 0.0d0
 sepmax = 0.0d0
-
+bulkmax = 0.0d0
+bulkcount = 0
     maxclusenergy = 0.0d0
     initialenergy = 0.0
     normalisedsize = 0
@@ -445,7 +450,7 @@ sepmax = 0.0d0
 
   do m = 1,nprotein
        maxl = chlen(m)
-        if(histcl(m) == 1) then
+        !if(histcl(m) == 1) then
         do l = 2,maxl
 sepx =min(abs(chains(m,l)%x-chains(m,l-1)%x),gridsize-abs(chains(m,l)%x-chains(m,l-1)%x))
 sepy=min(abs(chains(m,l)%y-chains(m,l-1)%y),gridsize-abs(chains(m,l)%y-chains(m,l-1)%y))
@@ -459,7 +464,7 @@ sepmonocount = sepmonocount+1
 sss = int(totsep*binsize)
 summing(1,sss) = summing(1,sss)+1.0
 end do
-end if
+!end if
         if(histcl(m) == 2) then
         do l = 2,maxl
 
@@ -494,7 +499,31 @@ sss = int(totsep*binsize)
 !write(6,*) 'sss',sss,totsep,int(0.5)
 summing(3,sss) = summing(3,sss)+1.0
 end do
+
+else if(clnos(m) /= content) then
+        do l = 2,maxl
+
+
+sepx=min(abs(chains(m,l)%x-chains(m,l-1)%x),gridsize-abs(chains(m,l)%x-chains(m,l-1)%x))
+sepy=min(abs(chains(m,l)%y-chains(m,l-1)%y),gridsize-abs(chains(m,l)%y-chains(m,l-1)%y))
+sepz=min(abs(chains(m,l)%z-chains(m,l-1)%z),gridsize-abs(chains(m,l)%z-chains(m,l-1)%z))
+
+totsep = sqrt((real(sepx)**2)+(real(sepy)**2) +(real(sepz)**2))
+bulkmax = bulkmax+totsep
+bulkcount = bulkcount+1
+
+!sss = int(totsep*binsize)
+!write(6,*) 'sss',sss,totsep,int(0.5)
+!summing(3,sss) = summing(3,sss)+1.0
+end do
+
+
+
 end if
+
+
+
+
 
 
 end do
@@ -508,7 +537,8 @@ totdi = totdi + sepdi
 totdic = totdic + sepdicount
 totclus = totclus + sepmax
 totclusc = totclusc + sepmaxcount
-
+totbulk = totbulk + bulkmax
+totbulkc = totbulkc + bulkcount
     deallocate(cllist)
     deallocate(clnos)
     deallocate(tempcoord)
