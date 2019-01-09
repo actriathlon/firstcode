@@ -65,9 +65,7 @@ open(712,file= 'inputp.dat',action='write')
   open(21, file = 'm.vtf', action = 'read')
   open(29, file = 'RDF.dat', action = 'write')
   open(31, file = 'unnormRDF.dat', action = 'write')
-  open(39, file='e.dat',action='read')
   open(38, file = 'freesitedist.dat', action = 'write')
-  open(47, file='c.dat',action='read')
   open(68,file ='unbounddensity.dat',action='write')
 open(168,file='densitybeadspershell.dat',action='write')  
 open(196,file='availablesites.dat',action='write')
@@ -213,15 +211,11 @@ chains(m,l)%linker = specieslink(chains(m,l)%type)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   do m = 1,preinterest
 !  read(39,*) BIN,BIN
-!read(47,*) BIN,BIN
-read(47,*)BIN,BIN
 end do
 
 do m = 1,firstrun,1
      !read(21,*) BIN
      !read(21,*) BIN
-     read(39,*) BIN,BIN
-     read(47,*) BIN,BIN,BIN
      !do  l= 1,totpoints
         !read(21,*)BIN
      !end do
@@ -231,8 +225,6 @@ write(6,*) 'preinterest =',preinterest,firstrun
   do t = 1,unusedtime
      read(21,*) BIN
      read(21,*) BIN
-     read(39,*) BIN,BIN
-     read(47,*) BIN,BIN,BIN,BIN
      !read(21,*) BIN,BIN,BIN
      do m = 1,totpoints
         read(21,*)BIN
@@ -245,8 +237,6 @@ write(6,*) 'preinterest =',preinterest,firstrun
 
      read(21,*) BIN
      read(21,*) BIN
-     read(39,*) t1,en(t)
-     read(47,*)t2,readcomx,readcomy,readcomz
 write(6,*) 'time',t1,t2
      if(t1 /= t2) stop 8
      write(6,*) 'energy',en(t),t,t1     
@@ -365,9 +355,9 @@ do r7 = 1,40,1
 write(811,*) real(r7)/(4.0*binsize),sumradofgy(r7),real(sumradofgy(r7))/rogcount
 end do
 
-write(6,*) 'RALTOTROG=', realtotrog/realtotrogcount
+!write(6,*) 'RALTOTROG=', realtotrog/realtotrogcount
 
-write(6,*) 'average unbound BULK and CLUSTER:',(real(totunb(:))/timeofinterest)-1
+write(6,*) 'average beads in BULK and CLUSTER:',(real(totunb(:))/timeofinterest)
 write(6,*) 'cluster neighbours=',clusneigh(:),real(clusneigh(1))/(totunb(1)-1),real(clusneigh(2))/(totunb(2)-1)
 write(6,*) 'bulkneighbours=',bulkneigh(:),real(bulkneigh(1))/(totunb(3)-1),real(bulkneigh(2))/(totunb(4)-1)
 write(6,*)'ratios=',(real(clusneigh(1))/(totunb(1)-1))/(real(bulkneigh(1))/(totunb(3)-1)) &
@@ -377,9 +367,9 @@ write(6,*) 'FINAL bulk neighbours:',real(totblhist)/timeofinterest
 
 
 if(limiting==1) then
-write(712,*) int((real(totunb(2))/timeofinterest)-1),int((real(totunb(4))/timeofinterest)-1),clusneigh(2),bulkneigh(2)
+write(712,*) int((real(totunb(2))/timeofinterest)),int((real(totunb(4))/timeofinterest)),clusneigh(2),bulkneigh(2)
 else if(limiting==2) then
-write(712,*)int((real(totunb(1))/timeofinterest)-1),int((real(totunb(3))/timeofinterest)-1),clusneigh(1),bulkneigh(1)
+write(712,*)int((real(totunb(1))/timeofinterest)),int((real(totunb(3))/timeofinterest)),clusneigh(1),bulkneigh(1)
 end if
 
 do l = 1,maxlength
@@ -408,7 +398,7 @@ maxl = chlen(m)
 if(chains(m,1)%type ==2) then
 if(clnos(m) /= content) then
 do l = 1,maxl
-if (bound(m,l) == 0) then
+!if (bound(m,l) == 0) then
 if(chains(m,l)%a1 == 0)then
  bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
 bpoints(modulo(int(chains(m,l)%x)+1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) = &
@@ -439,11 +429,11 @@ bulkneigh(chains(m,l)%type) = bulkneigh(chains(m,l)%type)+1
 bpoints(chains(m,l)%x,chains(m,l)%y,modulo(int(chains(m,l)%z)-1-1,gridsize)+1) = &
 bpoints(chains(m,l)%x,chains(m,l)%y,modulo(int(chains(m,l)%z)-1-1,gridsize)+1) + 1
 end if
-end if
+!end if
 end do
 else if(clnos(m) == content) then
 do l = 1,maxl
-if(bound(m,l) == 0) then
+!if(bound(m,l) == 0) then
 if(chains(m,l)%a1 == 0)then
  clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
 cpoints(modulo(chains(m,l)%x+1-1,gridsize)+1,chains(m,l)%y,chains(m,l)%z) = &
@@ -479,7 +469,7 @@ end if
 
 
 !if(chains(m,l)%a6 == 0) clusneigh(chains(m,l)%type) = clusneigh(chains(m,l)%type)+1
-end if
+!end if
 end do
 end if
 
@@ -531,21 +521,14 @@ end subroutine neighbour
     integer,dimension(:,:),allocatable::cb,conn
     integer,dimension(:),allocatable::maxcluslist,concount
     integer,dimension(:,:),allocatable::bound
-    double precision::maxclusenergy,initialenergy,comx,comy,comz,benergy,bconn
+    double precision::maxclusenergy,initialenergy,comx,comy,comz
          type(rprot) :: dpcomcluster
-double precision::varc1,varc2,aveconn,avecoo,gelaveen,gelaveconn,gelvarc1,gelvarc2
+double precision::varc1,varc2,aveconn,avecoo
 
 varc1 = 0.0d0
 varc2 = 0.0d0
 aveconn = 0.0d0
-avecoo = 0.0d0
-
-gelvarc1 = 0.0d0
-gelvarc2 = 0.0d0
-gelaveconn = 0.0d0
-gelaveen = 0.0d0
-benergy= 0.0d0
-bconn = 0.0d0
+aveconn = 0.0d0
 
     allocate(cb(nprotein,nprotein))
     allocate(clnos(nprotein))
@@ -660,8 +643,8 @@ chen(m) = 0.0d0
                       end if
         
                 if(isbond .eqv. .true.) then
-                         !cb(m,g) = 1
-                         !cb(g,m) = 1
+                         cb(m,g) = 1
+                         cb(g,m) = 1
                          !bound(m,l) = 1
                          !bound(g,f) = 1
                          if(interen(chains(m,l)%type,chains(g,f)%type) < 0.0) then
@@ -833,65 +816,29 @@ avecoo = avecoo + chen(g)
     end do
 
 
-   do m = 1,nprotein
-        if(clnos(m) /= content) then
-benergy = benergy + chen(m)                
-bconn = bconn + concount(m)
-end if
-    end do
-
-
-    tconn=sum(concount(:))
-        gelaveconn = bconn/(nprotein-maxclus)
-        gelaveen = benergy/(nprotein-maxclus)
-!write(6,*) 'NPROTEIN-MAXCLUS',nprotein-maxclus,gelaveconn,gelaveen
-
 
 aveconn = aveconn/maxclus
 avecoo = avecoo/maxclus
 
-    do m = 1,nprotein
-        if(clnos(m) /= content) then 
-       gelvarc1 = gelvarc1 +((gelaveconn -float(concount(m)))**2)
-gelvarc2 = gelvarc2 +((gelaveen-chen(m))**2)
-        end if
-    end do
 
-
-
-
-    do m = 1,maxclus
-       g = maxcluslist(m)
-       varc1 = varc1 +((aveconn -concount(g))**2)
-varc2 = varc2 +((avecoo-chen(g))**2)
-    end do
-
-
-write(6,*)'NPROTEIN-MAXCLUS',nprotein-maxclus,gelaveconn,gelaveen,gelvarc1,gelvarc2
-
-
+!    do m = 1,maxclus
+!       g = maxcluslist(m)
+!       varc1 = varc1 +((aveconn -concount(g))**2)
+!varc2 = varc2 +((avecoo-chen(g))**2)
+!    end do
+!
+!
 !write(913,*) t,aveconn,((sqrt(varc1))/(maxclus-1)),avecoo,((sqrt(varc2))/(maxclus-1))
 
 
 
-!    tconn=sum(concount(:))
-!gelaveconn = tconn
-
-
+    tconn=sum(concount(:))
 
    onepop = 0
     do m = 1,maxclus
        g = maxcluslist(m)
        if(chains(g,1)%type ==1) onepop = onepop+1
     end do
-
-if((gelaveconn == 0.0) .or. (gelaveen == 0.0)) then
-write(913,*)t,aveconn,((sqrt(varc1))/(maxclus-1)),avecoo,((sqrt(varc2))/(maxclus-1)),&
-gelaveconn,0.0,gelaveen,0.0
-else 
-write(913,*)t,aveconn,((sqrt(varc1))/(maxclus-1)),avecoo,((sqrt(varc2))/(maxclus-1)),&
-gelaveconn,((sqrt(gelvarc1))/((nprotein-maxclus)-1)),gelaveen,((sqrt(gelvarc2))/((nprotein-maxclus)-1))
-end if
 
 
 
@@ -919,37 +866,37 @@ call neighbour(clnos,bound,content)
     do m = 1,nprotein
        maxl = chlen(m)
        do l = 1,maxl
-          if(bound(m,l) == 0) then
-        if((chains(m,l)%a1 == 1) .and. (chains(m,l)%a2 == 1 ).and.  (chains(m,l)%a3 == 1) .and. &
-        (chains(m,l)%a4 == 1) .and. (chains(m,l)%a5 == 1) .and. (chains(m,l)%a6 == 1)) then
-                if(clnos(m) == content)then    
-                        if(chains(m,l)%type ==1) then
-                                a2clus(a2)%m = m
-                                a2clus(a2)%l = l
-                                a2 = a2+1
-                        else if(chains(m,l)%type ==2) then
-                                b2clus(b2)%m = m
-                                b2clus(b2)%l = l
-                                b2 = b2+1
-                        end if
-                else if(clnos(m) /= content) then
-                        if(chains(m,l)%type ==1) then
-                                a2bulk(c2)%m = m
-                                a2bulk(c2)%l = l
-                                c2 = c2+1
-                        else if(chains(m,l)%type ==2) then
-                                b2bulk(d2)%m = m
-                                b2bulk(d2)%l = l
-                                d2 = d2+1
-                end if
-             end if
+          !if(bound(m,l) == 0) then
+!        if((chains(m,l)%a1 == 1) .and. (chains(m,l)%a2 == 1 ).and.  (chains(m,l)%a3 == 1) .and. &
+!        (chains(m,l)%a4 == 1) .and. (chains(m,l)%a5 == 1) .and. (chains(m,l)%a6 == 1)) then
+!                if(clnos(m) == content)then    
+!                        if(chains(m,l)%type ==1) then
+!                                a2clus(a2)%m = m
+!                                a2clus(a2)%l = l
+!                                a2 = a2+1
+!                        else if(chains(m,l)%type ==2) then
+!                                b2clus(b2)%m = m
+!                                b2clus(b2)%l = l
+!                                b2 = b2+1
+!                        end if
+!                else if(clnos(m) /= content) then
+!                        if(chains(m,l)%type ==1) then
+!                                a2bulk(c2)%m = m
+!                                a2bulk(c2)%l = l
+!                                c2 = c2+1
+!                        else if(chains(m,l)%type ==2) then
+!                                b2bulk(d2)%m = m
+!                                b2bulk(d2)%l = l
+!                                d2 = d2+1
+!                end if
+!             end if
 
 
 
 
    
-   goto 119
-else
+!   goto 119
+!else
 
              if(clnos(m) == content)then    
             if(chains(m,l)%type ==1) then
@@ -971,14 +918,14 @@ else
                    bbulk(d)%l = l
                    d = d+1
                 end if
-             end if
+           !  end if
 end if
-119 continue
-          end if
+!119 continue
+!          end if
        end do
     end do
     write(6,*) 'aclus',a,'bclus',b,'abulk',c,'bbulk',d,en(t),maxclus
-    write(6,*) 'a2clus',a2,'b2clus',b2,'a2bulk',c2,'b2bulk',d2,en(t),maxclus
+!    write(6,*) 'a2clus',a2,'b2clus',b2,'a2bulk',c2,'b2bulk',d2,en(t),maxclus
     write(196,*) a,b,c,d,en(t),maxclus
    !write(96,*) 'FAIL' 
 
@@ -995,6 +942,11 @@ bcount = 0
 
        dummy = a+b+c+d-4
        write(6,*) 'bound =',bcount,'unbound=',unbcount,'total=',dummy
+
+
+
+
+
 
 totunb(1) = totunb(1)+(a-a2)
 totunb(2) = totunb(2)+(b-b2)
@@ -1019,18 +971,24 @@ comz = dpcomcluster%z
 !comy = readcomy
 !comz = readcom
 write(6,*) 'COM values', comx,comy,comz
-    call paircorrelation(a,b,c,d,a2,b2,c2,d2,comx,comy,comz)
+    
+
+!call paircorrelation(a,b,c,d,a2,b2,c2,d2,comx,comy,comz)
+
+
+
+
 !write(6,*) 'energy',en(1),timeofinterest
 
 call rdf(comx,comy,comz)
 
-call radiusofgyration(maxclus,maxcluslist)
+!call radiusofgyration(maxclus,maxcluslist)
 
 
 
-    if (nint(initialenergy) /= nint(en(t))) then
-       write(6,*) 'energyfail!!!!!!!!!!!!!!',t,initialenergy,en(t)
-    end if
+    !if (nint(initialenergy) /= nint(en(t))) then
+    !   write(6,*) 'energyfail!!!!!!!!!!!!!!',t,initialenergy,en(t)
+    !end if
 
 sumconncount = sumconncount + maxclus
 
@@ -1551,9 +1509,9 @@ end subroutine rdf
           write(3,*) time,dpcomcluster%x,dpcomcluster%y,dpcomcluster%z
 
 
-if(int(dpcomcluster%x) /= int(readcomx)) write(6,*)'FAILLLLLL',dpcomcluster%x,readcomx
-if(int(dpcomcluster%y) /= int(readcomy))write(6,*)'FAILLLLLL',dpcomcluster%y,readcomy
-if(int(dpcomcluster%z) /= int(readcomz))write(6,*)'FAILLLLLL',dpcomcluster%z,readcomz
+!if(int(dpcomcluster%x) /= int(readcomx)) write(6,*)'FAILLLLLL',dpcomcluster%x,readcomx
+!if(int(dpcomcluster%y) /= int(readcomy))write(6,*)'FAILLLLLL',dpcomcluster%y,readcomy
+!if(int(dpcomcluster%z) /= int(readcomz))write(6,*)'FAILLLLLL',dpcomcluster%z,readcomz
 
 
 

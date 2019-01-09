@@ -4,32 +4,27 @@ program move
 
   double precision :: totalenergy,kT,totrmsbrute!,randomz
   double precision :: totdisp,totchainlength,avechainlength,choose2
-  double precision :: actualchainlength,random,totiso,sumsep,bulksumsep
+  double precision :: actualchainlength,random,totiso
   double precision :: runningaveROG,runningaveEtE,chainlength,sumdebug,testdummy,polymerrog,polymerl
-  integer :: rept,datayes,maxclussize,minl,outputrate,backtime,magiccontent,AB,AC,BC,ABC,bAB,bAC,bBC,bABC
-  integer ::lastruntime,timebase,steplength,macc,mrej,roatt,roacc,clientlength,telacc,telrej
-  integer :: gridsize,maxlength,t,N,nprotein,time,debugging,count,avecluspop,aveclusnumber,vtype
-  integer :: seed,natoms,maxtime,reptbackward,reptforward,equilib,cltacc,cltatt,binsize,normaliser
-  integer :: successful,reject,maxlength1,maxlength2,q,d,u,sm,qt,ft,gt,scans,nclients,phasecount
-  integer:: rerej,reacc,nprotein1,nprotein2,nspecies,mtype,freezetime,nclientspecies,nscaffold
-  integer,dimension(:,:),allocatable ::bonddd,study,sumclient,visit,visit2,unbound
-  integer,dimension(:),allocatable :: chlen,speciespop,specieslen,clientlist,specieslinker
-  integer,dimension(:),allocatable:: clnos,totalbindevents
-  !integer,dimension(:),allocatable::
-  double precision :: trackx,tracky,trackz,intraen,intdummy,totdire,r
+  integer :: rept,datayes,maxclussize,minl,outputrate,backtime
+  integer ::lastruntime,timebase,steplength,macc,mrej,roatt,roacc
+  integer :: gr,timeofinterest,totpoints,binsize,phasecount
+  integer :: gridsize,maxlength,t,N,nprotein,time,debugging,count,avecluspop,aveclusnumber
+  integer :: seed,natoms,maxtime,reptbackward,reptforward,equilib,cltacc,cltatt
+  integer :: successful,reject,maxlength1,maxlength2,q,d,u,sm,qt,ft,gt,scans
+  integer:: rerej,reacc,nprotein1,nprotein2,nspecies,mtype,sumr1,sumr2,yl
+  integer,dimension(:,:),allocatable :: bonddd
+  integer,dimension(:),allocatable :: chlen,speciespop,specieslen
+  double precision :: trackx,tracky,trackz,intraen,intdummy,totdire,rho,rr
   double precision,dimension(:),allocatable::chen
-  double precision,dimension(:,:),allocatable :: interenergy,interen,intraenergy
+  double precision,dimension(:,:),allocatable :: interenergy,interen,intraenergy,summing
   real, external :: ran2
-!character(len = 10) :: commandread  
-real,dimension(:),allocatable :: variance,disp
-  real,dimension(:,:),allocatable:: summing,vdist,freesites,clusdist
+  real,dimension(:),allocatable :: variance,disp
   logical :: exist,fail,finalfail,debugyes,film,isbond,clt,clr,noinfo,scalinginfo,nobonds,restart
-  real::start,finish,midpoint,choose1
+  real::start,finish,midpoint,choose1,interesttest,realfinal
   !integer::removethis,pivde
-  logical :: suffclust,settingup
-        real(8),  parameter :: PI_8  = 4 * atan (1.0_8)
-double precision::averageROG,averageROGbulk,averageROGunb
-integer::noROGS,noROGSbulk,noROGSunb
+  logical :: suffclust
+  real(8),  parameter :: PI_8  = 4 * atan (1.0_8)
   !change COM code for large protein in small box to stop pbc effect - similar to old version - but still
   !use dispacement from central bead
 
@@ -37,7 +32,7 @@ integer::noROGS,noROGSbulk,noROGSunb
 
   !Sort MSD outputs
 
-  
+
   type protein
      integer :: x,y,z,species,type,linker,am,al,bm,bl,cm,cl,dm,dl,em,el,fm,fl
   end type protein
@@ -58,62 +53,47 @@ integer::noROGS,noROGSbulk,noROGSunb
      double precision :: x,y,z
   end type centremass
 
-  type lbond
-integer:: bm,bl
-end type lbond
 
-  type(protein),dimension(:,:),allocatable :: protcoords,client
+  type(protein),dimension(:,:),allocatable :: protcoords
   type(centremass),dimension(:,:),allocatable :: com
-   type(centremass) :: dpcomclusterinit
+
+  call CPU_TIME(start)
 
 
-sumsep = 0.0d0
-bulksumsep = 0.0d0
-AB=0
-AC=0
-BC = 0
-ABC = 0
-bAB=0
-bAC=0
-bBC = 0
-bABC = 0
-telacc=0
-telrej = 0
 
-
-allocate(totalbindevents(3))
-totalbindevents(:) = 0
-  allocate(client(1,5))
   mtype = 0
-vtype=0        
-!noinfo = .false.
+  !noinfo = .false.
   call read_setup
 
- !call get_command_argument(1,commandread)
-  !read(commandread, '(i3)') freezetime
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  binsize = 1
+  phasecount = 0
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  allocate(summing(mtype,(gridsize*binsize)+1))
+  summing(:,:) = 0.0
+  totpoints = 0
+  do gr = 1,mtype
+     totpoints = totpoints + (speciespop(gr)*specieslen(gr))
+  end do
+  write(6,*) 'total points =',totpoints
 
 
-
-  write(6,*) 'CLIENTINFO',clientlength,nclients!,freezetime 
-  allocate(sumclient(nclients,2*(clientlength+1)))
-allocate(unbound(nclients,clientlength))
-unbound(:,:) = 0  
-sumclient(:,:) = 0
-suffclust = .false.
+  suffclust = .true.
   nprotein = sum(speciespop)
   write(6,*) 'nprotein = ', nprotein
   maxlength = maxval(specieslen)
   write(6,*) 'maxlength =',maxlength
-  open(21, file = '../movetagged.vtf', action = 'read')
+  !open(17, file = 'setup2.txt', action = 'read')
   if(restart .eqv. .false.) then
-     !open(23, file = 'initialtake2.xyz', action = 'read')
+     open(23, file = 'initialtake2.xyz', action = 'read')
      if(noinfo .eqv. .true.) then
         open(11,file='scalingdata.dat',action = 'write')
         open(82,file = 'newclusterdata.dat', action = 'write')
      else if(noinfo .eqv. .false.) then
         if(scalinginfo .eqv. .true.) then
            open(11,file='scalingdata.dat',action = 'write')
-           open(29, file = 'rms.dat', action = 'write')
+           !open(29, file = 'rms.dat', action = 'write')
            open(91, file = 'avechainlength.dat', action = 'write')
            open(97, file = 'radiusofgyration.dat', action = 'write')
            open(79, file = 'runningave.dat', action = 'write')
@@ -121,7 +101,7 @@ suffclust = .false.
            open(13,file='timedata.dat',action = 'write')
            open(19,file='acceptance.dat',action  = 'write')
         else if(scalinginfo .eqv. .false.) then
-           open(29, file = 'rms.dat', action = 'write')
+           !open(29, file = 'rms.dat', action = 'write')
            open(93, file = 'energy.dat', action = 'write')
            open(77,file='phasetrans.dat',action = 'write')
            open(82,file = 'newclusterdata.dat', action = 'write')
@@ -129,7 +109,6 @@ suffclust = .false.
            open(19,file='acceptance.dat',action  = 'write')
            open(38,file = 'histclust.dat',action = 'write')
            open(3,file='coms.dat',action = 'write')
-           open(109,file='bondcount.dat',action='write')
            !open(67,file='bondddd.dat',action  = 'write')
         end if
      end if
@@ -142,7 +121,7 @@ suffclust = .false.
      else if(noinfo .eqv. .false.) then
         if(scalinginfo .eqv. .true.) then
            open(11,file='scalingdata.dat',access = 'append')
-           open(29, file = 'rms.dat', access = 'append')
+           !open(29, file = 'rms.dat', access = 'append')
            open(91, file = 'avechainlength.dat', access = 'append')
            open(97, file = 'radiusofgyration.dat', access = 'append')
            open(79, file = 'runningave.dat', access = 'append')
@@ -150,30 +129,20 @@ suffclust = .false.
            open(13,file='timedata.dat',access = 'append')
            open(19,file='acceptance.dat',access  = 'append')
         else if(scalinginfo .eqv. .false.) then
-           open(29, file = 'rms.dat', access = 'append')
+           !open(29, file = 'rms.dat', access = 'append')
            open(93, file = 'energy.dat', access = 'append')
            open(82,file = 'newclusterdata.dat', access = 'append')
            open(13,file='timedata.dat',access = 'append')
            open(77,file='phasetrans.dat',access = 'append')
            open(19,file='acceptance.dat',access  = 'append')
            open(38,file = 'histclust.dat',access = 'append')
-           open(3,file='coms.dat',action = 'write')
-           open(109,file='bondcount.dat',action='write')
-           !open(67,file='bondddd.dat',action  = 'write')
+           open(3,file='coms.dat',access = 'append')
+        open(886,file='onecorrelation.dat',access='append')
+        open(887,file= 'clustercorrelation.dat',access='append')
+   !open(67,file='bondddd.dat',action  = 'write')
         end if
      end if
   end if
-
-noROGS = 0
-averageROG = 0.0d0
-noROGSbulk = 0
-averageROGbulk = 0.0d0
-noROGSunb = 0
-averageROGunb = 0.0d0
- 
-
-
- 
   reptforward = 0
   reptbackward = 0
   totrmsbrute = 0.0d0
@@ -192,26 +161,27 @@ averageROGunb = 0.0d0
   polymerrog = 0.0d0
   if(restart .eqv. .true.) equilib = 0
   maxtime = maxtime + equilib
-  outputrate = (maxtime-equilib)/10
-  
+  outputrate = (maxtime-equilib)/100
+
   cltacc = 0
   cltatt = 0
   !kT = 50.0
   successful = 0
   reject = 0
   backtime = maxtime
-
+  reacc = 0
+  rerej = 0
 
   totdire = 0.0
   totiso = 0.0d0
-  do ft = 1,mtype-nclientspecies
-     do gt = 1,mtype-nclientspecies
+  do ft = 1,mtype
+     do gt = 1,mtype
         totdire = totdire + interenergy(ft,gt)
         totiso = totiso + interen(ft,gt)
         write(6,*) 'energies',ft,gt, 'dir',interenergy(ft,gt),'iso',interen(ft,gt)
      end do
   end do
-  if(int(totiso) == 0) isbond = .false.
+  if(int(totiso) >= 0) isbond = .false.
   if(int(totdire) == 0) nobonds =  .true.
 
   !interenergy = -1.0
@@ -222,47 +192,25 @@ averageROGunb = 0.0d0
   write(6,*) 'clr',clr,'clt',clt
 
   if(restart .eqv. .false.) then
-     open(67, file = 'move.vtf', action = 'write')
-open(88,file = 'newmovetagged.vtf',action='write')
+     !open(67, file = 'move.vtf', action = 'write')
+     open(88,file = 'movetagged.vtf',action='write')
   else if(restart .eqv. .true.) then
-     open(67, file = 'move.vtf', access = 'append')
-     open(88, file = 'newmovetagged.vtf', access = 'append')
+     !open(67, file = 'move.vtf', access = 'append')
+     open(88, file = 'movetagged.vtf', access = 'append')
   end if
 
 
-open(141,file='linkerhistogram.dat',action='write')
-open(160,file='origdimens.dat',action='write')
-open(161,file='dimens.dat',action='write')
-
-
   allocate(protcoords(nprotein,maxlength))
-  !allocate(protcoords(nprotein,maxlength))
   allocate(com(2,nprotein))
   allocate(variance(nprotein))
   allocate(disp(maxtime))
   allocate(bonddd(nprotein,maxlength))
   allocate(chlen(nprotein))
   allocate(chen(nprotein))
-  allocate(clientlist(nclients))
-  allocate(visit(nprotein,maxlength))
-  allocate(clnos(nprotein))
-  allocate(vdist(4*clientlength,gridsize))
-allocate(clusdist(mtype,gridsize))
-
-  phasecount = 0
-vdist(:,:) = 0
-  visit(:,:) = 0
-!summing(:,:) = 0
-clusdist(:,:) = 0
-  
-binsize = 1
 
   N = maxlength
 
 
-  do qt = 1,nclients
-     clientlist(qt) = (nprotein -nclients) +qt
-end do
   count = 0
   time = 0
   totdisp = 0.0d0
@@ -277,31 +225,25 @@ end do
   mrej = 0
   roatt = 0
   roacc = 0
-nscaffold = nprotein-nclients
 
-allocate(study(nclients,maxlength))
+
   !sets the limit of the pivot move
 
 
-  call CPU_TIME(start)
+  call CPU_TIME(interesttest)
+  write(6,*) 'TIME FOR FIRST SECTION',interesttest-start
 
   write(6,*) 'foundation start'
   if(restart .eqv. .false.) then
      call foundation
   else if (restart .eqv. .true.) then
      call foundationrestart
-     call restdata
   end if
   write(6,*) 'foundation complete'
 
-  if((scalinginfo .eqv. .false.) .and. (restart .eqv. .false.)) call pdbsetup
+  if((scalinginfo .eqv. .false.) .and. (restart .eqv. .false.)) call pdbsetupalt
   minl = minval(specieslen)
 
-
-  allocate(summing(2,(protcoords(nprotein,1)%linker*binsize)+1))
-  summing(:,:) = 0
-  allocate(freesites(mtype*3,gridsize*binsize))
-  freesites(:,:) = 0
 
   write(6,*) 'a'
   !call dataout
@@ -312,24 +254,10 @@ allocate(study(nclients,maxlength))
      com(2,qt)%z = com(1,qt)%z
   end do
   write(6,*) 'b'
+  if(restart .eqv. .false.) call clustercount
 
-
-  settingup = .true.
-  call clustercount
-  !write(6,*) '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',content
-settingup = .false.
-normaliser = 0
-call freesitescalc
-
-
-write(6,*) 'centre of mass details:',dpcomclusterinit
-
-  
   actualchainlength = 0.0
   do timebase = 1,maxtime,1
-
-
-if(timebase == 3) call freesitescalc
      if(restart .eqv. .false.) then
         time = timebase
      else
@@ -338,48 +266,70 @@ if(timebase == 3) call freesitescalc
      if(time < 0) time = abs(time)
      fail = .false.
 
-     if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
-        call dataout
-     end if
-!write(6,*) 'c'
+     !if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
+     !   call dataout
+     !end if
+     !write(6,*) 'c'
+     do qt = 1,1000
+        if((nobonds .eqv. .true.) .and. (clt .eqv. .false.)) then
+           choose1 = ran2(seed)-0.5
+           if(choose1 <=0.0) call positioning
+           if((choose1>0.0) .and. (rept ==1)) call reptation
+           if((choose1>0.0) .and. (rept ==0)) call positioning
+           !if((modulo(time,maxtime/100) == 0)) then
+           !write(29,*) (time-equilib), real(totrmsbrute/nprotein)
+           !end if
 
-      call pickmoves
-      call analyse
+        else
+           call pickmoves
+        end if
+        call CPU_TIME(midpoint)
+        if((midpoint-start)> 201600) then
+           backtime = time
+           goto 93
+        end if
 
-     
+     end do
+
+
+        if((modulo(time,outputrate/10) == 0) .and. (modulo(time,outputrate) /= 0)) then
+        call strippedclustercount
+        end if
      if (mod(time,outputrate) == 0) then
         if(noinfo .eqv. .false.)  write(93,*) time,totalenergy
      end if
      if(modulo(time,outputrate) == 0 .and. (scalinginfo .eqv. .false.)) then 
+        !call strippedclustercount
         call energy(.false.)
         call clustercount
      end if
 
+     if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
+        call dataout
+     end if
+
+
      if((time > equilib) .and. (modulo(time,outputrate) == 0) .and. (scalinginfo .eqv. .true.)) then
         call length
-        !call radiusofgyration
+        call radiusofgyration
         if((noinfo .eqv. .false.) .and. (scalinginfo .eqv. .true.)) write(79,*) time-equilib,&
              runningaveEtE/((time-equilib)/outputrate),&
              runningaveROG/((time-equilib)/outputrate)
      end if
-     
+
 
      if (modulo(time,outputrate) == 0 .and. debugyes .eqv. .true.) then
         call debug
-        !do ft = 1,nclients
-           !write(109,*) time,sumclient(ft,1),sumclient(ft,2),sumclient(ft,3),&
-                !sumclient(ft,4),sumclient(ft,5),sumclient(ft,6)
-        !end do
         !call energy(.false.)
      end if
-     
+
      if (fail .eqv. .true.) then
         write(6,*) 'step= ', time, 'FAIL'
      else if(modulo(time,100000) == 0) then
         write(6,*) 'step =',time
      end if
-     
-     
+
+
      if((modulo(time,maxtime/10) == 0) .and.(noinfo .eqv. .false.)) then
         write(19,*) 'moves',macc,mrej, real(macc)/(macc+mrej)
         write(19,*) 'reptation',reacc,rerej,real(reacc)/(rerej+reacc)
@@ -387,7 +337,7 @@ if(timebase == 3) call freesitescalc
         write(19,*) 'vector moves',roacc,roatt,real(roacc)/roatt   
      end if
      call CPU_TIME(midpoint)
-     if((midpoint-start)> 216000) then
+     if((midpoint-start)> 201600) then
         backtime = time
         goto 93
      end if
@@ -395,18 +345,20 @@ if(timebase == 3) call freesitescalc
   end do
 
 
- if(restart .eqv. .false.) then
-        backtime = timebase
-     else
-        backtime = timebase+lastruntime
-     end if
+  if(restart .eqv. .false.) then
+     backtime = timebase
+  else
+     backtime = timebase+lastruntime
+  end if
 
 
 93 if((film .eqv. .false.) .and. (scalinginfo .eqv. .false.)) call dataout
   write(6,*) 'deltax =',trackx, 'deltay =',tracky, 'deltaz =',trackz
   call CPU_TIME(finish)
   call dataoutrestart
-  if(noinfo .eqv. .false.) write(13,*) (finish-start)
+  !if(noinfo .eqv. .false.) write(13,*) (finish-start)
+  !write(6,*) 'TIME to FINISH',finish-start  
+
   !call error
   call energy(.false.)
   if((noinfo .eqv. .true.) .or. (scalinginfo .eqv. .true.)) write(11,*) maxlength1, &
@@ -415,6 +367,41 @@ if(timebase == 3) call freesitescalc
   write(6,*) 2*log(actualchainlength/backtime)/log(real(maxlength))
   write(6,*) 'average clusper pop', (real(avecluspop)/aveclusnumber)/((backtime-equilib)/outputrate), &
        real(avecluspop)/((backtime-equilib)/outputrate), real(aveclusnumber)/((backtime-equilib)/outputrate)
+
+
+
+  if(restart .eqv. .false.) then
+     continue
+  else if (restart .eqv. .true.) then
+
+     timeofinterest = phasecount
+     !(backtime - lastruntime)/outputrate
+     write(6,*) 'time of interest',timeofinterest,backtime,lastruntime
+     open(113,file='comrdf.dat',action = 'write')
+     open(114,file='unnormcomrdf.dat',action  = 'write')
+
+     rho = (totpoints)/real(gridsize**3)
+     write(113,*) 0,0,0
+     do gr = 1,(binsize*(gridsize/2)) + 1
+        rr = (real(gr)/binsize)
+        !write(6,*) 'rho',rho
+        sumr1= 0
+        sumr2 = 0
+        do yl = 1,gr,1
+           sumr1 = sumr1 + summing(1,yl)
+           sumr2 = sumr2 + summing(2,yl)
+        end do
+
+        write(113,*) rr,sumr1/(timeofinterest*(4.0/3.0)*PI_8*(rr**3)),sumr2/(timeofinterest*(4.0/3.0)*PI_8*(rr**3)),&
+             (sumr2+sumr1)/(timeofinterest*(4.0/3.0)*PI_8*(rr**3))
+        write(114,*) rr,sumr1/timeofinterest,sumr2/timeofinterest,summing(1,gr)/timeofinterest,summing(2,gr)/timeofinterest
+     end do
+     close(113)
+     close(114)
+  end if
+
+
+
   !inquire(file = "lengthdataaverages.dat", exist = exist)
   !if (exist) then
   ! open(30, file = "lengthdataaverages.dat", status = "old", position = "append",action ="write")
@@ -422,20 +409,10 @@ if(timebase == 3) call freesitescalc
   !open(30, file = "lengthdataaverages.dat", status = "new",action ="write")
   !end if
   !write(30,*) 2*log(actualchainlength/maxtime)/log(real(maxlength))!,2*(SQRT(totvar)/maxtime)/(actualchainlength/maxtime)
-
-call cleanup
-
-open(1717,file='radiusofgclient.dat',action='write')
-        write(1717,*) averageROG/noROGS,averageROGbulk/noROGSbulk,averageROGunb/noROGSunb
-
-close(1717) 
-
- 
   write(6,*) 'reject = ', reject
   write(6,*) 'successful =', successful
   !write(6,*) 1.0*successful/(reject + successful)
   write(6,*) 'acceptance ratio =', 1.0*successful/(reject + successful)
-  write(6,*) 'teleport acceptance=', telacc,telrej,real(telacc)/(telacc+telrej)
   write(6,*) 'count =', count
   write(6,*) 'maxlength =', maxlength
   write(6,*) 'forward =', reptforward
@@ -445,126 +422,586 @@ close(1717)
      write(6,*) '***********^^^^^^^^^^^^^^^^^^^This simulation FAILED!^^^^^^^^^^***********'
   end if
   !write(6,*) 'end'
+
+  call CPU_TIME(realfinal)
+  write(6,*) 'Very final time:',realfinal-finish
+  if(noinfo .eqv. .false.) write(13,*) (realfinal-start)
+
 contains
 
 
-  subroutine cleanup
-    integer::m,l,maxl,a
-
-    if(restart .eqv. .false.) then
-       open(119,file='visit.dat',action  = 'write')
-       open(108,file = 'bonddate.dat',action = 'write')
-       open(212,file = 'clientrdf.dat',action = 'write')
-       open(213,file = 'clusterclientrdf.dat',action = 'write')       
- else if (restart .eqv. .true.) then
-    open(119,file='visit.dat',access = 'append')
-          open(212,file = 'clientrdf.dat',access = 'append')
-     open(213,file = 'clusterclientrdf.dat',access = 'append')
-          !open(108,file = 'bonddate.dat',access = 'append')
-    !open(119,file='visit.dat',action  = 'write')
+  subroutine phase(mz,clsize,clnos,cb)
+    !subroutine to find the radius of gyration of the largest cluster      !
+    !also contains subroutine clustercount for finding the largest cluster !
     
-    open(108,file = 'bonddate.dat',action = 'write')
-    end if
-    do m= 1,nprotein,1
+    integer :: m,l,maxl,h,a,totcluspop,rogpop,maxrogpop,g
+    double precision :: radofgy,maxradofgy
+    type(centremass)::avepos,sumsq
+    integer,intent(inout)::clsize,mz
+    integer,dimension(:),allocatable::cllist
+    integer,dimension(:,:),allocatable:: route
+    integer,dimension(:),allocatable::rcounter,checklist
+    integer,dimension(:,:),intent(inout)::cb
+    integer,dimension(:),intent(inout)::clnos
+    type(basicp) :: comcluster
+    type(rprot) :: dpcomcluster
+    logical :: toolarge
+
+    toolarge = .FALSE.
+    rogpop = 0
+    allocate(cllist(clsize))
+    allocate(route(nprotein,clsize))
+    allocate(rcounter(nprotein))
+    allocate(checklist(clsize))
+
+    cllist(1) =mz
+    h = 2
+    do a = 1,nprotein
+       if(clnos(a) == clnos(mz)) then
+          if(a/=mz) then
+             cllist(h) = a
+             h = h + 1
+          end if
+       end if
+    end do
+    call clustercom(mz,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge,dpcomcluster)
+    !   write(6,*) 'comcluster',comcluster
+    !  write(6,*) toolarge
+    !if(toolarge .eqv. .false.) call clustercomcheck(mz,clsize,comcluster,cb,cllist)
+    !write(6,*) 'check comcluster',comcluster
+    radofgy = 0.0d0
+    do m = 1,nprotein
        maxl = chlen(m)
        do l = 1,maxl
-          write(119,*) m,l,visit(m,l)
+          sumsq%x = min(abs(protcoords(m,l)%x-comcluster%x),gridsize-abs(protcoords(m,l)%x-comcluster%x))
+          sumsq%y = min(abs(protcoords(m,l)%y-comcluster%y),gridsize-abs(protcoords(m,l)%y-comcluster%y))
+          sumsq%z = min(abs(protcoords(m,l)%z-comcluster%z),gridsize-abs(protcoords(m,l)%z-comcluster%z))
+          radofgy = radofgy + (sumsq%x**2) + (sumsq%y**2) + (sumsq%z**2)
        end do
+       rogpop = rogpop + maxl
     end do
-    do a = 1,nclients
-       write(108,*) sumclient(a,:),sumsep/sumclient(a,clientlength+1),bulksumsep/sumclient(a,2*(clientlength+1)),unbound(a,:),&
-        totalbindevents(1),totalbindevents(2),totalbindevents(3)
-    end do
+    radofgy = radofgy/rogpop
 
+    if (restart .eqv. .true.) call rdf(dpcomcluster)
 
-    if(clientlength ==2) then
-       write(178,*) sumclient(1,1)-sumclient(1,3),sumclient(1,2)-sumclient(1,3),&
-            sumclient(1,4)-sumclient(1,6),sumclient(1,5)-sumclient(1,6)            
-    end if
-    
-    if(clientlength == 3) then
-    write(178,*) AB,AC,BC,ABC,bAB,bAC,bBC,bABC
-    end if
-    do l = 1,binsize*protcoords(nprotein,1)%linker
-       write(141,*) real(l)/binsize,summing(1,l),summing(2,l)
-    end do
-
-    do l = 1,gridsize*binsize
-       r = real(l)/binsize
-       write(212,*) r,vdist(:,l)/(phasecount*(4.0/3.0)*PI_8*((r**3)-((real(l-1)/binsize)**3)))
-       write(213,*) r,clusdist(:,l)/(phasecount*(4.0/3.0)*PI_8*((r**3)-((real(l-1)/binsize)**3)))     
-    end do
-
-open(251,file = 'freedist.dat',action = 'write')
-    do l = 1,(gridsize/2)*binsize
-       r = real(l)/binsize
-       write(251,*) r,freesites(:,l)/(normaliser*(4.0/3.0)*PI_8*((r**3)-((real(l-1)/binsize)**3)))    
-    end do
-    
-  end subroutine cleanup
-
-
-  subroutine restdata
-    integer::m,l,maxl,binsize,lx
-    character(len=10)::BIN
-    open(119,file='visit.dat',action  = 'read')
-    open(108,file='bonddate.dat',action  = 'read')
-
-    do m= 1,nprotein,1
+    maxradofgy = 0.0d0
+    do g = 1,clsize
+       m = cllist(g)
        maxl = chlen(m)
        do l = 1,maxl
-          read(119,*) BIN,BIN,visit(m,l)
+          sumsq%x = min(abs(protcoords(m,l)%x-comcluster%x),gridsize-abs(protcoords(m,l)%x-comcluster%x))
+          sumsq%y = min(abs(protcoords(m,l)%y-comcluster%y),gridsize-abs(protcoords(m,l)%y-comcluster%y))
+          sumsq%z = min(abs(protcoords(m,l)%z-comcluster%z),gridsize-abs(protcoords(m,l)%z-comcluster%z))
+          maxradofgy = maxradofgy + (sumsq%x**2) + (sumsq%y**2) + (sumsq%z**2)
+       end do
+       maxrogpop = maxrogpop + maxl
+    end do
+    maxradofgy = maxradofgy/maxrogpop
+
+
+    write(77,*) time,radofgy,sqrt(radofgy),maxradofgy,sqrt(maxradofgy)
+
+
+  end subroutine phase
+
+  subroutine rdf(dpcomcluster)
+    !subroutine to calculate the RDF of the beads from the centre of mass of the largest cluster  !
+    type(rprot),intent(in) :: dpcomcluster
+    integer :: m,l,maxl,lx
+    double precision :: dx,dy,dz
+    double precision :: delta
+
+
+    phasecount = phasecount+1
+    do m = 1,nprotein
+       maxl = chlen(m)
+       do l = 1,maxl
+          dx = min(abs(protcoords(m,l)%x - dpcomcluster%x), gridsize - abs(protcoords(m,l)%x - dpcomcluster%x))
+          dy = min(abs(protcoords(m,l)%y - dpcomcluster%y), gridsize - abs(protcoords(m,l)%y - dpcomcluster%y))
+          dz = min(abs(protcoords(m,l)%z - dpcomcluster%z), gridsize - abs(protcoords(m,l)%z - dpcomcluster%z))
+
+          delta = sqrt((dx**2)+(dy**2)+(dz**2))
+
+          lx = INT(delta/(1.0/binsize))
+
+
+          summing(protcoords(m,l)%type,lx+1) = summing(protcoords(m,l)%type,lx+1)+1.0
        end do
     end do
-    read(108,*)sumclient(:,:),BIN,BIN
+
+  end subroutine rdf
 
 
-        close(108)
-        close(119)
-  end subroutine restdata
+  subroutine updatebondold(m,beadmin,beadmax,tempcoord)
+    !Subroutine to give protcoords initial neighbourlist after           !
+    !being generated in initial energy subroutine                        !
+    integer,intent(in):: m,beadmin,beadmax
+    Type(prottemp),dimension(:),intent(inout) :: tempcoord
+    integer ::l,g,f,bg,bf
+
+    do l = beadmin,beadmax,1
 
 
- subroutine singlemove(m)
-    integer,intent(in)::m
-    integer :: l,deltax1,deltax2,deltay1,deltay2,deltaz1,deltaz2,dx,dy,dz,bdir,str
-    double precision :: deltaenergy,tele
+       protcoords(m,l)%am = tempcoord(l)%am
+       protcoords(m,l)%al = tempcoord(l)%al
+       protcoords(m,l)%bm = tempcoord(l)%bm
+       protcoords(m,l)%bl = tempcoord(l)%bl
+       protcoords(m,l)%cm = tempcoord(l)%cm
+       protcoords(m,l)%cl = tempcoord(l)%cl
+       protcoords(m,l)%dm = tempcoord(l)%dm
+       protcoords(m,l)%dl = tempcoord(l)%dl
+       protcoords(m,l)%em = tempcoord(l)%em
+       protcoords(m,l)%el = tempcoord(l)%el
+       protcoords(m,l)%fm = tempcoord(l)%fm
+       protcoords(m,l)%fl = tempcoord(l)%fl
+
+    end do
+
+  end subroutine updatebondold
+
+  subroutine vectorspin(m,l,maxl)
+    !Subroutine to rotate the bond vector of a randomly selected bead  !
+    integer,intent(in)::maxl,m,l
+    integer::p,f,dum1,dum2,no1,no2,maxt,g,bdir,maxback,pr,str
+    integer,dimension(:),allocatable:: tbo
+    type(prottemp),dimension(:),allocatable::tempcoord
+    double precision :: deltaenergy
+    logical :: adjver
+    allocate(tbo(maxl))
+    allocate(tempcoord(maxl))
+
+    roatt = roatt + 1   
+    !write(6,*) maxl,maxlength1,maxlength2,protcoords(m,1)%species
+    !do a = 1,nprotein*maxlength
+
+    call bonddirection(tbo(l))
+    tempcoord(l)%x = protcoords(m,l)%x
+    tempcoord(l)%y = protcoords(m,l)%y
+    tempcoord(l)%z = protcoords(m,l)%z
+
+    !if(tempcoord(l)%z == -3) write(6,*) 'failll',time
+    deltaenergy = 0.0d0
+
+    tempcoord(l)%am = protcoords(m,l)%am
+    tempcoord(l)%al = protcoords(m,l)%al
+    tempcoord(l)%bm = protcoords(m,l)%bm
+    tempcoord(l)%bl = protcoords(m,l)%bl
+    tempcoord(l)%cm = protcoords(m,l)%cm
+    tempcoord(l)%cl = protcoords(m,l)%cl
+    tempcoord(l)%dm = protcoords(m,l)%dm
+    tempcoord(l)%dl = protcoords(m,l)%dl
+    tempcoord(l)%em = protcoords(m,l)%em
+    tempcoord(l)%el = protcoords(m,l)%el
+    tempcoord(l)%fm = protcoords(m,l)%fm
+    tempcoord(l)%fl = protcoords(m,l)%fl
+    !call removeenergyintra(m,l,deltaenergy,tempcoord)
+    !call removeenergyinter(m,l,deltaenergy,tempcoord)
+
+    !if(protcoords(m,l)%type == 3) goto 82
+
+    if(protcoords(m,l)%am /=0) then
+       if(bonddd(m,l) ==1) then
+          g = protcoords(m,l)%am
+          f = protcoords(m,l)%al
+          if(bonddd(g,f) ==-1) then
+             if(g /=m) then
+                deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+       if(tbo(l) ==1) then
+          g = protcoords(m,l)%am
+          f = protcoords(m,l)%al
+          if(bonddd(g,f) ==-1) then
+             if(g /=m) then
+                deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+    end if
+
+
+    if(protcoords(m,l)%bm /=0) then
+       if(bonddd(m,l) ==-1) then
+          g = protcoords(m,l)%bm
+          f = protcoords(m,l)%bl
+          if(bonddd(g,f) ==1) then
+             if(g /=m) then
+                deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+       if(tbo(l) ==-1) then
+          g = protcoords(m,l)%bm
+          f = protcoords(m,l)%bl
+          if(bonddd(g,f) ==1) then
+             if(g /=m) then
+                deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+    end if
+
+    if(protcoords(m,l)%cm /=0) then
+       if(bonddd(m,l) ==2) then
+          g = protcoords(m,l)%cm
+          f = protcoords(m,l)%cl
+          if(bonddd(g,f) ==-2) then
+             if(g /=m) then
+                deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+       if(tbo(l) ==2) then
+          g = protcoords(m,l)%cm
+          f = protcoords(m,l)%cl
+          if(bonddd(g,f) ==-2) then
+             if(g /=m) then
+                deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+    end if
+
+
+    if(protcoords(m,l)%dm /=0) then
+       if(bonddd(m,l) ==-2) then
+          g = protcoords(m,l)%dm
+          f = protcoords(m,l)%dl
+          if(bonddd(g,f) ==2) then
+             if(g /=m) then
+                deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+       if(tbo(l) ==-2) then
+          g = protcoords(m,l)%dm
+          f = protcoords(m,l)%dl
+          if(bonddd(g,f) ==2) then
+             if(g /=m) then
+                deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+    end if
+    if(protcoords(m,l)%em /=0) then
+       if(bonddd(m,l) ==3) then
+          g = protcoords(m,l)%em
+          f = protcoords(m,l)%el
+          if(bonddd(g,f) ==-3) then
+             if(g /=m) then
+                deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+       if(tbo(l) ==3) then
+          g = protcoords(m,l)%em
+          f = protcoords(m,l)%el
+          if(bonddd(g,f) ==-3) then
+             if(g /=m) then
+                deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m)then
+                deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+    end if
+
+    if(protcoords(m,l)%fm /=0) then
+       if(bonddd(m,l) ==-3) then
+          g = protcoords(m,l)%fm
+          f = protcoords(m,l)%fl
+          if(bonddd(g,f) ==3) then
+             if(g /=m) then
+                deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+       if(tbo(l) ==-3) then
+          g = protcoords(m,l)%fm
+          f = protcoords(m,l)%fl
+          if(bonddd(g,f) ==3) then
+             if(g /=m) then
+                deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             else if(g==m) then
+                deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
+             end if
+          end if
+       end if
+    end if
+
+82  continue
+
+
+    if(Energydecision(deltaenergy) .eqv. .true.) then
+       totalenergy = totalenergy + deltaenergy
+       call updatepos(m,l,l,tempcoord,tbo,maxl)
+       call updatebond(m,l,l,tempcoord)
+       roacc = roacc + 1
+    end if
+    deallocate(tempcoord)
+
+
+
+  end subroutine vectorspin
+
+
+  subroutine foundation
+    !read in initial positions of the protein
+    integer::m,l,no1,no2,maxl,z
+    character(len = 10) :: BIN
+    read(23,*) BIN
+    !write(6,*) maxlength
+
+    !write(67,*) ' '
+    do m = 1,nprotein,1
+       read(23,*) protcoords(m,1)%species,protcoords(m,1)%x,protcoords(m,1)%y,protcoords(m,1)%z,protcoords(m,1)%type,chlen(m)&
+            ,protcoords(m,1)%linker
+
+       maxl = chlen(m)
+
+       do l = 2,maxl,1
+          !write(6,*) l
+          read(23,*) protcoords(m,l)%species, protcoords(m,l)%x, protcoords(m,l)%y, protcoords(m,l)%z,protcoords(m,l)%type
+       end do
+
+       do l =1,maxl
+          call bonddirection(bonddd(m,l))
+       end do
+
+    end do
+
+    call energy(.TRUE.)
+    call debug
+    if(scalinginfo .eqv. .true.) call pdbsetupalt
+  end subroutine foundation
+
+
+
+
+  subroutine foundationrestart
+    !read in initial positions of the protein
+    integer::m,l,no1,no2,maxl,z
+    character(len = 10) :: BIN
+    read(23,*) lastruntime,totrmsbrute,suffclust
+    lastruntime = abs(lastruntime)
+    if(lastruntime >= 1000000000) lastruntime = lastruntime/1000
+    do m = 1,nprotein,1
+       read(23,*) protcoords(m,1)%species, protcoords(m,1)%x, protcoords(m,1)%y, protcoords(m,1)%z,&
+            protcoords(m,1)%type,bonddd(m,1),chlen(m),protcoords(m,1)%linker
+
+       maxl = chlen(m)
+
+       do l = 2,maxl,1
+          !write(6,*) l
+          read(23,*) protcoords(m,l)%species, protcoords(m,l)%x, protcoords(m,l)%y, protcoords(m,l)%z,&
+               protcoords(m,l)%type,bonddd(m,l)
+       end do
+    end do
+
+
+
+    call energy(.TRUE.)
+    call debug
+
+    close(23)
+  end subroutine foundationrestart
+
+  subroutine clusterposition
+    !subroutine to select the cluster move to be applied  !
+    integer::scans,m,clsize,clback,h,a !,clsizetest
+    real :: decider
+    integer,dimension(:),allocatable:: cllist,cllistfind
+    integer,dimension(:,:),allocatable::cb
+    logical,dimension(:),allocatable:: cl
+    !integer,dimension(:),allocatable:: clno
+    allocate(cllistfind(nprotein))
+    allocate(cb(nprotein,nprotein))
+    allocate(cl(nprotein))
+    !allocate(clno(nprotein))
+
+    cl = .false.
+
+    m =int(ran2(seed)*(nprotein))+1
+
+
+    if((clt .eqv. .false.)) then
+       call positioning
+       return
+    end if
+    !write(6,*) 'preassign'
+    call clusterassignmove(m,cllistfind,clsize,cl)
+
+
+    !call clusterassign(m,clno,clsizetest,cb)
+    !if(clsize /= clsizetest) write(6,*) 'allocate fail',clsize,clsizetest
+    allocate(cllist(clsize))
+    !write(6,*) 'assigned'
+    if((1.0/clsize) > (0.1*ran2(seed))) then
+       do a = 1,clsize
+          cllist(a) = cllistfind(a)
+       end do
+
+
+
+
+       call clustertranslation(m,clsize,cb,cllist,cl)
+
+
+    end if
+
+  end subroutine clusterposition
+
+
+
+  subroutine rotate(m,l,b,tempcoords,xx,xy,xz,yx,yy,yz,zx,zy,zz,dx,dy,dz)
+    !redundant subroutine for rotation move !
+    integer,intent(in):: m,l,b,xx,xy,xz,yx,yy,yz,zx,zy,zz,dx,dy,dz
+    type(prottemp),dimension(:),intent(inout) :: tempcoords
+    !write(6,*) dx,dy,dz
+    tempcoords(b)%x = modulo(protcoords(m,l)%x + (xx*dx) + (xy*dy) + (xz*dz) -1,gridsize)+1
+    tempcoords(b)%y = modulo(protcoords(m,l)%y + (yx*dx) + (yy*dy) + (yz*dz)-1,gridsize)+1
+    tempcoords(b)%z = modulo(protcoords(m,l)%z + (zx*dx) + (zy*dy) + (zz*dz)-1,gridsize)+1
+
+  end subroutine rotate
+
+  subroutine pickmoves
+    !Subroutine to select which moves to attemp   !
+    integer:: scans,m,maxl,decide,l,a
+    !double precision :: decide
+    scans = 1
+    !do scans = 1,(nprotein1*maxlength1 + nprotein2*maxlength2)
+    decide = int(ran2(seed)*10)+1
+    !if(time > 570000 .and. (time < 573000))write(6,*) 'decide',decide,time
+
+    !if(protein(m,1)%species==3) then
+    !call clusterposition
+    !return
+    !end if
+    !write(6,*) 'start loop',decide
+
+    if(decide <= 4) then
+       do a=1,maxlength
+          m =int(ran2(seed)*(nprotein))+1
+          maxl = chlen(m)
+          l = int(ran2(seed)*(maxl))+1
+          call vectorspin(m,l,maxl)
+       end do
+    end if
+    if((decide > 4) .and. (decide <= 6) ) call reptation
+    if((decide > 6) .and. (decide <= 8)) call positioning
+    if((decide > 8) ) call clusterposition
+
+
+
+    !if((modulo(time,maxtime/100) == 0)) then
+    !write(29,*) (time-equilib)*scans, real(totrmsbrute)/nprotein
+    !end if
+
+  end subroutine pickmoves
+
+
+  logical Function Energydecision(denergy)
+    !function to select whether to accept or reject a move !
+    double precision, intent(in) :: denergy
+    if(denergy <= 0.0) then
+       Energydecision = .True.
+    else if(exp(-denergy/kT) > ran2(seed)) then
+       Energydecision = .True.
+    else
+       Energydecision = .False.
+    end if
+  end Function Energydecision
+
+
+
+  subroutine positioning
+    !displaces a bead by 0 or +/- 1 in x,y or z direction
+    integer :: m,l,deltax1,deltax2,deltay1,deltay2,deltaz1,deltaz2,dx,dy,dz,bdir,str
+    double precision :: deltaenergy
     logical :: rac,racc,adjver
-    integer:: st,pr,maxl,maxback
+    integer:: st,pr,maxl,maxback,decide
+    !double precision::sumdebug
     type(prottemp),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable::tbo
-
-    allocate(tempcoord(1))
-    allocate(tbo(1))
+    !integer::fakex,fakey,fakez
+    allocate(tempcoord(maxlength))
+    allocate(tbo(maxlength))
     !return    
     rac = .true.
+    m = int(ran2(seed)*nprotein)+1
 
+    !if(protcoords(m,1)%species == 3) then
+    !call clusterposition
+    !return 
+    !end if
 
-    maxl = 1
-    l=1
-
-tele = -0.5 !ran2(seed)-0.5
-
-if(tele> 0.0) then
-
-
-    
-    l =1
+    maxl = chlen(m)
+    l = int(ran2(seed)*maxl)+1
     dx = 0
     dy = 0
     dz = 0
+    !write(6,*) 'positioning'
 
 
+    decide = int(ran2(seed)*3)+1
 
-15  continue
+    SELECT CASE (decide)
 
-    dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-    dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-    dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+    CASE (1)
+       dx = 1
+    CASE (2)
+       dx = 0
+    CASE (3)
+       dx = -1
 
+    END SELECT
 
+    decide = int(ran2(seed)*3)+1
 
-    if((dx**2 + dy**2 + dz**2) > protcoords(m,1)%linker) goto 15
+    SELECT CASE (decide)
 
+    CASE (1)
+       dy = 1
+    CASE (2)
+       dy = 0
+    CASE (3)
+       dy = -1
+
+    END SELECT
+
+    decide = int(ran2(seed)*3)+1
+
+    SELECT CASE(decide)
+
+    CASE (1)
+       dz = 1
+    CASE (2)
+       dz = 0
+    CASE (3)
+       dz = -1
+
+    END SELECT
 
 
     tempcoord(l)%x = modulo(protcoords(m,l)%x+dx-1,gridsize)+1
@@ -572,19 +1009,49 @@ if(tele> 0.0) then
     tempcoord(l)%z = modulo(protcoords(m,l)%z+dz-1,gridsize)+1
 
 
-else if (tele < 0.0) then
+    
+    if(l>1) then
+       dx = min(abs(tempcoord(l)%x - protcoords(m,l-1)%x),gridsize-abs(tempcoord(l)%x &
+            - protcoords(m,l-1)%x)) 
+       dy = min(abs(tempcoord(l)%y - protcoords(m,l-1)%y),gridsize- abs(tempcoord(l)%y &
+            - protcoords(m,l-1)%y)) 
+       dz = min(abs(tempcoord(l)%z - protcoords(m,l-1)%z),gridsize - abs(tempcoord(l)%z &
+            - protcoords(m,l-1)%z)) 
 
-         tempcoord(l)%x = int(ran2(seed)*gridsize)+1
-         tempcoord(l)%y = int(ran2(seed)*gridsize)+1
-         tempcoord(l)%z = int(ran2(seed)*gridsize)+1
+       sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
+       if(sumdebug > protcoords(m,1)%linker) then
+          rac = .false.
+          goto 37
+       end if
+    end if
 
-end if
+    if(l<maxl) then
+
+       dx = min(abs(tempcoord(l)%x - protcoords(m,l+1)%x),gridsize-abs(tempcoord(l)%x &
+            - protcoords(m,l+1)%x)) 
+       dy = min(abs(tempcoord(l)%y - protcoords(m,l+1)%y),gridsize- abs(tempcoord(l)%y &
+            - protcoords(m,l+1)%y)) 
+       dz = min(abs(tempcoord(l)%z - protcoords(m,l+1)%z),gridsize - abs(tempcoord(l)%z &
+            - protcoords(m,l+1)%z)) 
+
+       sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
+       if(sumdebug > protcoords(m,1)%linker) then
+          rac = .false.
+          goto 37
+       end if
+    end if
 
 
     deltaenergy = 0.0d0        
-  
-         
-  
+    do st = 1,maxl,1
+       if(st /=l) then
+          if(overlaps(m,l,st,tempcoord) .eqv. .false.) then
+             rac = .false.
+             goto 37
+          end if
+       end if
+    end do
+
     do pr = 1,nprotein,1
        if(pr /= m) then
           maxback = chlen(pr)
@@ -610,6 +1077,19 @@ end if
     call removeenergyintra(m,l,deltaenergy,tempcoord)
     call removeenergyinter(m,l,deltaenergy,tempcoord)
 
+    do str = 1,l-1,1
+       call adjacent(m,l,str,tempcoord,adjver,bdir)
+       if((adjver.eqv. .true.)) then
+          call bondformintra(m,l,str,tempcoord,tbo,bdir,deltaenergy)
+       end if
+    end do
+    do str = l+1,maxl,1
+       call adjacent(m,l,str,tempcoord,adjver,bdir)
+       if((adjver.eqv. .true.)) then
+          call bondformintra(m,l,str,tempcoord,tbo,bdir,deltaenergy)
+       end if
+    end do
+
     do pr = 1,nprotein
        if(pr /= m) then
           maxback = chlen(pr)
@@ -622,6 +1102,13 @@ end if
        end if
     end do
 
+    !if(fakex /= tempcoord(l)%x) write(6,*) 'x change'
+    !if(fakey /= tempcoord(l)%y) write(6,*) 'y change'
+    !if(fakez /= tempcoord(l)%z) write(6,*) 'z change'
+
+
+
+    !if(NINT(deltaenergy) /= 0) write(6,*) 'pivot',deltaenergy
     if(Energydecision(deltaenergy) .eqv. .true.) then
        totalenergy = totalenergy + deltaenergy
        call updatepos(m,l,l,tempcoord,tbo,maxl)
@@ -635,1524 +1122,6 @@ end if
 
 37  if (rac .eqv. .false.) then
        mrej = mrej + 1
-    end if
-  end subroutine singlemove
-
-
-
-   subroutine teleport
-
-     integer :: l,deltax1,deltax2,deltay1,deltay2,deltaz1,deltaz2,dx,dy,dz,bdir,str,m
-     integer::xbk,ybk,zbk,i,j,k,g,f,hold
-    double precision :: deltaenergy
-    logical :: rac,racc,adjver
-    integer:: st,pr,maxl,maxback
-    type(prottemp),dimension(:),allocatable :: tempcoord
-    integer,dimension(:),allocatable::tbo
-    integer::gate,control
-
-       m = ((nprotein-nclients) +int(ran2(seed)*nclients))+1
-    maxl = chlen(m)
-    allocate(tempcoord(maxl))
-    allocate(tbo(maxl))
-    !return    
-    rac = .true.
-deltaenergy = 0.0d0
-
-
-    dx = 0
-    dy = 0
-    dz = 0
-
-
-
-
-
-
-
-      hold = m
-      !write(6,*) 'oooooh',m,protcoords(m,1)%linker
-      
-      control = 1
-      gate = 1
-
-
-      
-      
-35    continue
-         l = 1
-         i = int(ran2(seed)*gridsize)+1
-         j = int(ran2(seed)*gridsize)+1
-         k = int(ran2(seed)*gridsize)+1
-         !write(6,*) 'e'
-         if (hold /= 1) then
-            do g = 1, hold-1
-               maxback = specieslen(protcoords(g,1)%species)
-               do f = 1,maxback
-                  if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
-                       .and. k == protcoords(g,f)%z ) then
-                     return
-                     !goto 35
-                  else
-                     continue
-                  end if
-               end do
-            end do
-         else
-            continue
-         end if
-
-         tempcoord(l)%x = i
-         tempcoord(l)%y = j
-         tempcoord(l)%z = k
-
-         !write(6,*) 'here'
-
-         do l = 2,maxl
-
-            xbk = tempcoord(l-1)%x
-            ybk = tempcoord(l-1)%y
-            zbk = tempcoord(l-1)%z
-
-
-            control = 1
-
-            
-15          continue
-
-!write(6,*) 'linkerlen',protcoords(m,l)%linker
-               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
-               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
-               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
-
-
-
-               if(sqrt(real((dx**2) + (dy**2) + (dz**2))) > protcoords(m,l-1)%linker) goto 15
-               
-
-                     i = modulo(xbk+dx-1,gridsize)+1
-                     j = modulo(ybk +dy-1,gridsize)+1
-                     k  = modulo(zbk+dz-1,gridsize)+1
-
-               do g = 1, hold-1
-               maxback = specieslen(protcoords(g,1)%species)
-                  do f = 1,maxback
-                     if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
-                          .and. k == protcoords(g,f)%z) then
-                        return
-                        !goto 15
-                        end if
-                  end do
-               end do
-
-               do f = 1,l-1,1
-                  if (i == tempcoord(f)%x .and. j == tempcoord(f)%y &
-                       .and. k == tempcoord(f)%z) then
-                     return
-                     !goto 15
-                  end if
-               end do
-
-               tempcoord(l)%x = i
-               tempcoord(l)%y = j
-               tempcoord(l)%z = k
-
-       
-  
-             end do
-  
-    
-do l =1,maxl
-
-
-    tempcoord(l)%am = 0
-    tempcoord(l)%bm = 0
-    tempcoord(l)%cm = 0
-    tempcoord(l)%dm = 0
-    tempcoord(l)%em = 0
-    tempcoord(l)%fm = 0
-
-
-    call bonddirection(tbo(l))
-
-    call removeenergyintra(m,l,deltaenergy,tempcoord)
-    call removeenergyinter(m,l,deltaenergy,tempcoord)
-
-
-    do pr = 1,nprotein
-       if(pr /= m) then
-          maxback = chlen(pr)
-          do str = 1,maxback
-             call adjacent(pr,l,str,tempcoord,adjver,bdir)
-             if((adjver.eqv. .true.)) then
-                call bondforminter(m,pr,l,str,tempcoord,tbo,bdir,deltaenergy)
-             end if
-          end do
-       end if
-    end do
-
- end do
- 
-    if(Energydecision(deltaenergy) .eqv. .true.) then
-       totalenergy = totalenergy + deltaenergy
-       call updatepos(m,1,maxl,tempcoord,tbo,maxl)
-       call updatebond(m,1,maxl,tempcoord)
-       telacc = telacc + 1
-    else
-       rac = .false.
-       goto 37
-    end if
-
-!if(deltaenergy>0) then
-!write(6,*) 'deltaenergy',deltaenergy
-!call energy(.false.)
-!end if
-
-37  if (rac .eqv. .false.) then
-       telrej = telrej + 1
-    end if
-  end subroutine teleport
-
- subroutine rdftot(m)
-   integer,intent(in)::m
-    integer :: l,maxl,lx
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-!phasecountdoub = phasecountdoub+1
-
-       maxl = chlen(m)
-       do l = 1,maxl
-          !phasecount = phasecount+1
-          dx = min(abs(protcoords(m,l)%x - dpcomclusterinit%x), gridsize - abs(protcoords(m,l)%x - dpcomclusterinit%x))
-          dy = min(abs(protcoords(m,l)%y - dpcomclusterinit%y), gridsize - abs(protcoords(m,l)%y - dpcomclusterinit%y))
-          dz = min(abs(protcoords(m,l)%z - dpcomclusterinit%z), gridsize - abs(protcoords(m,l)%z - dpcomclusterinit%z))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-
-   vdist(clientlength+l,lx+1) = vdist(clientlength+l,lx+1)+1.0
-   !vdist((2*clientlength)+1,lx+1) = vdist((2*clientlength)+1,lx+1) + 1.0
-       end do
-
-    
-  end subroutine rdftot
-
-
-  
-
- subroutine rdf(m,l)
-   integer,intent(in)::m,l
-    integer :: maxl,lx
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-phasecount = phasecount+1
-
-       maxl = chlen(m)
-          dx = min(abs(protcoords(m,l)%x - dpcomclusterinit%x), gridsize - abs(protcoords(m,l)%x - dpcomclusterinit%x))
-          dy = min(abs(protcoords(m,l)%y - dpcomclusterinit%y), gridsize - abs(protcoords(m,l)%y - dpcomclusterinit%y))
-          dz = min(abs(protcoords(m,l)%z - dpcomclusterinit%z), gridsize - abs(protcoords(m,l)%z - dpcomclusterinit%z))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-
-            vdist(l,lx+1) = vdist(l,lx+1)+1.0
-   vdist((2*clientlength)+1,lx+1) = vdist((2*clientlength)+1,lx+1) + 1.0
-
-    
- end subroutine rdf
-
-
- 
- subroutine rdfcomplex(m,control,attached)
-   integer,intent(in)::m,control
-   integer,dimension(:),intent(in)::attached
-    integer :: l,maxl,lx,j
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-    do j = 1,control,1
-       l = attached(j)
-!phasecount = phasecount+1
-
-       maxl = chlen(m)
-          dx = min(abs(protcoords(m,l)%x - dpcomclusterinit%x), gridsize - abs(protcoords(m,l)%x - dpcomclusterinit%x))
-          dy = min(abs(protcoords(m,l)%y - dpcomclusterinit%y), gridsize - abs(protcoords(m,l)%y - dpcomclusterinit%y))
-          dz = min(abs(protcoords(m,l)%z - dpcomclusterinit%z), gridsize - abs(protcoords(m,l)%z - dpcomclusterinit%z))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-
-            vdist((3*clientlength)+l,lx+1) = vdist((3*clientlength)+l,lx+1)+1.0
-   !vdist((2*clientlength)+1,lx+1) = vdist((2*clientlength)+1,lx+1) + 1.0
-end do
-
-    
-  end subroutine rdfcomplex
-
-
- subroutine rdfcluster(m,control,attached)
-   integer,intent(in)::m,control
-   integer,dimension(:),intent(in)::attached
-    integer :: l,maxl,lx,j
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-    do j = 1,control,1
-       l = attached(j)
-!phasecount = phasecount+1
-
-       maxl = chlen(m)
-          dx = min(abs(protcoords(m,l)%x - dpcomclusterinit%x), gridsize - abs(protcoords(m,l)%x - dpcomclusterinit%x))
-          dy = min(abs(protcoords(m,l)%y - dpcomclusterinit%y), gridsize - abs(protcoords(m,l)%y - dpcomclusterinit%y))
-          dz = min(abs(protcoords(m,l)%z - dpcomclusterinit%z), gridsize - abs(protcoords(m,l)%z - dpcomclusterinit%z))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-
-            clusdist(protcoords(m,l)%type,lx+1) = clusdist(protcoords(m,l)%type,lx+1)+1.0
-   !vdist((2*clientlength)+1,lx+1) = vdist((2*clientlength)+1,lx+1) + 1.0
-end do
-
-    
-  end subroutine rdfcluster
-
-  
-  subroutine analyse
-    integer::m,l,g,f,control,dx,dy,dz,maxl,a,lx,dj
-    double precision:: separation
-    logical,dimension(clientlength)::clust
-    integer,dimension(clientlength) :: attached
-integer :: kxz
-
-    do a =1,clientlength
-       clust(a) = .false.
-       attached = 0
-    end do
-
-!write(6,*) 'content',content,clnos(10)
-    
-    control = 0
-    do a = 1,nclients
-       m = a+nscaffold
-       do g = 1,clientlength
-           study(a,g) = 0
-      end do
-       maxl = chlen(m)
-do l = 1,maxl
-   if(protcoords(m,l)%am/=0) then
-      g = protcoords(m,l)%am
-      f = protcoords(m,l)%al
-      if((bonddd(m,l) == 1) .and. (bonddd(g,f) ==-1)) then
-         dj = l
-call rdf(m,l)
-         attached(control +1) = l
-         study(a,l) = 1
-         control = control + 1
-         visit(m,l) = visit(m,l)+1
-         visit(g,f) = visit(g,f)+1
-         if(clnos(g) == magiccontent) then
-            clust(l) = .true.
-         end if        
-      end if
-   end if
-
-   
-    if(protcoords(m,l)%bm/=0) then
-      g = protcoords(m,l)%bm
-      f = protcoords(m,l)%bl
-      if((bonddd(m,l) == -1) .and. (bonddd(g,f) ==1)) then
-         dj = l
-call rdf(m,l)             
-     attached(control +1) = l
-         study(a,l) = 1
-        control = control + 1
-         visit(m,l) = visit(m,l)+1
-         visit(g,f) = visit(g,f)+1
-         if(clnos(g) == magiccontent) then
-            clust(l) = .true.
-         end if
-     end if
-  end if
-
-  
-    if(protcoords(m,l)%cm/=0) then
-      g = protcoords(m,l)%cm
-      f = protcoords(m,l)%cl
-      if((bonddd(m,l) == 2) .and. (bonddd(g,f) ==-2)) then
-         dj = l
-call rdf(m,l)
-                  attached(control +1) = l
-         study(a,l) = 1
-         control = control + 1
-         visit(m,l) = visit(m,l)+1
-         visit(g,f) = visit(g,f)+1
-         if(clnos(g) == magiccontent) then
-            clust(l) = .true.
-         end if
-      end if
-   end if
-
-   
-    if(protcoords(m,l)%dm/=0) then
-      g = protcoords(m,l)%dm
-      f = protcoords(m,l)%dl
-      if((bonddd(m,l) == -2) .and. (bonddd(g,f) ==2)) then
-         dj = l
-call rdf(m,l)
-                  attached(control +1) = l
-         study(a,l) = 1
-         control = control + 1
-         visit(m,l) = visit(m,l)+1
-         visit(g,f) = visit(g,f)+1
-         if(clnos(g) == magiccontent) then
-            clust(l) = .true.
-         end if
-         
-      end if
-   end if
-    if(protcoords(m,l)%em/=0) then
-      g = protcoords(m,l)%em
-      f = protcoords(m,l)%el
-      if((bonddd(m,l) == 3) .and. (bonddd(g,f) ==-3)) then
-         dj = l
-call rdf(m,l)
-                  attached(control +1) = l
-         study(a,l) = 1
-         control = control + 1
-         visit(m,l) = visit(m,l)+1
-         visit(g,f) = visit(g,f)+1
-         if(clnos(g) == magiccontent) then
-            clust(l) = .true.
-         end if
-      end if
-   end if
-
-   
-    if(protcoords(m,l)%fm/=0) then
-      g = protcoords(m,l)%fm
-      f = protcoords(m,l)%fl
-      if((bonddd(m,l) == -3) .and. (bonddd(g,f) ==3)) then
-         dj = l
-call rdf(m,l)
-                  attached(control +1) = l
-         study(a,l) = 1
-         control = control + 1
-         visit(m,l) = visit(m,l)+1
-         visit(g,f) = visit(g,f)+1
-         if(clnos(g) == magiccontent) then
-            clust(l) = .true.
-         end if
-         
-      end if
-   end if
-         
-      end do
-      if(control > 1) then
-                maxl = chlen(m)
-                do kxz = 2,maxl,1
-                if((study(a,kxz-1) ==1) .and. (study(a,kxz) == 1)) then        
-
-                 dx = min(abs(protcoords(m,kxz-1)%x - protcoords(m,kxz)%x),gridsize-abs(protcoords(m,kxz-1)%x&
-                -protcoords(m,kxz)%x))
-                dy = min(abs(protcoords(m,kxz-1)%y - protcoords(m,kxz)%y),gridsize-abs(protcoords(m,kxz-1)%y&
-                -protcoords(m,kxz)%y))
-                dz = min(abs(protcoords(m,kxz-1)%z - protcoords(m,kxz)%z),gridsize-abs(protcoords(m,kxz-1)%z&
-                -protcoords(m,kxz)%z))
-
-! if(clientlength ==2) call rdftot(m)
-! if((clientlength ==3) .and. (control == 3)) call rdftot(m)
-!  if((clientlength ==3) .and. (control == 2)) call rdfcomplex(m,control,attached)
-         
-         
-                 if(ANY(clust(:) .eqv. .true.)) then
-
-
-                separation = sqrt(real(dx**2)+real(dy**2)+real(dz**2))
-            
-                 lx = INT(separation/(1.0/binsize))
-                summing(2,lx) = summing(2,lx)+1
-            
-                 !do g = 1,clientlength,1
-                !   sumclient(a,g) = sumclient(a,g) + study(a,g)
-                !end do
-                sumclient(a,clientlength+1) =  sumclient(a,clientlength+1) + 1
-            
-                 sumsep = sumsep + separation
-            
-                else
-            
-            
-                separation = sqrt(real(dx**2)+real(dy**2)+real(dz**2))
-            
-                lx = INT(separation/(1.0/binsize))
-                summing(1,lx) = summing(1,lx)+1
-            
-                !do g = 1,clientlength,1
-                !   sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-                !end do
-                sumclient(a,2*(clientlength+1)) =  sumclient(a,2*(clientlength+1)) + 1
-            
-                 bulksumsep = bulksumsep + separation
- 
-            
-                 end if
-                end if        
-                end do
- 
-  do g = 1,clientlength,1
-if(clust(g) .eqv. .true.) then             
-  sumclient(a,g) = sumclient(a,g) + study(a,g)
-else if(clust(g) .eqv. .false.) then
-sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-end if
-            end do
-
-
-
-      else if(control==1) then
-         !write(108,*) time,study(a,1),study(a,2),0.0,0.0
-     
-
-
- do g = 1,clientlength,1
-if(clust(g) .eqv. .true.) then
-  sumclient(a,g) = sumclient(a,g) + study(a,g)
-else if(clust(g) .eqv. .false.) then
-sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-end if
-            end do
-    
-         
-         !call rdf(m,dj)
-         !if(ANY(clust(:) .eqv. .true.)) then
-         !   do g = 1,clientlength,1
-         !      sumclient(a,g) = sumclient(a,g) + study(a,g)
-         !   end do
-         !else
-         !   do g = 1,clientlength,1
-         !      sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-         !   end do
-            
-            
-!         end if
-!else if (control == 0)
-
-      end if
-
-
-if(control == 0) then
-call radiusofgyration(3)
-
-totalbindevents(3) = totalbindevents(3) + 1
-else if (control>0) then
- if(ANY(clust(:) .eqv. .true.)) then
-totalbindevents(1) = totalbindevents(1) +1
-         else
-totalbindevents(2) = totalbindevents(2) +1
-         end if
-end if
-
-
-do g = 1,clientlength
-if(study(a,g) ==0) unbound(a,g) =unbound(a,g)+1
-end do
-
-      if(clientlength == 3) then
-         if(ANY(clust(:) .eqv. .true.)) then      
-            
-            if((study(a,1) == 1) .and. (study(a,2) ==1) .and. (study(a,3) == 0)) then
-               AB = AB + 1
-            else if((study(a,1) == 1) .and. (study(a,2) ==0) .and. (study(a,3) == 1)) then
-               AC = AC + 1
-            else if((study(a,1) == 0) .and. (study(a,2) ==1) .and. (study(a,3) == 1)) then
-               BC = BC + 1
-            else if((study(a,1) == 1) .and. (study(a,2) ==1) .and. (study(a,3) == 1)) then
-               ABC = ABC + 1
-            end if
-
-   else
-
-
-        if((study(a,1) == 1) .and. (study(a,2) ==1) .and. (study(a,3) == 0)) then
-            bAB = bAB + 1
-         else if((study(a,1) == 1) .and. (study(a,2) ==0) .and. (study(a,3) == 1)) then
-            bAC = bAC + 1
-         else if((study(a,1) == 0) .and. (study(a,2) ==1) .and. (study(a,3) == 1)) then
-            bBC = bBC + 1
-         else if((study(a,1) == 1) .and. (study(a,2) ==1) .and. (study(a,3) == 1)) then
-            bABC = bABC + 1
-         end if
-      end if
-end if
-
-
-if(control >0) then
-         if(ANY(clust(:) .eqv. .true.)) then
-                call rdfcluster(m,control,attached)
-                call radiusofgyration(1)
-else
-call radiusofgyration(2)
-end if  
- end if
-
-      
-   end do
-   
-  end subroutine analyse
-
-  subroutine phase(mz,clsize,clnos,cb)
-    integer :: m,l,maxl,h,a,totcluspop,rogpop,maxrogpop,g
-    integer::maxx,minx,maxy,miny,maxz,minz
-    double precision :: radofgy,maxradofgy
-    type(centremass)::avepos,sumsq
-    integer,intent(inout)::clsize,mz
-    integer,dimension(:),allocatable::cllist
-    integer,dimension(:,:),allocatable:: route
-    integer,dimension(:),allocatable::rcounter,checklist
-    integer,dimension(:,:),intent(inout)::cb
-    integer,dimension(:),intent(inout)::clnos
-    type(basicp) :: comcluster,dummycom
-    logical :: toolarge
-
-    maxx=0
-    minx=0
-    maxy=0
-    miny = 0
-    maxz =0
-    minz =0
-
-  
-    
-    
-    toolarge = .FALSE.
-    rogpop = 0
-    allocate(cllist(clsize))
-    allocate(route(nprotein,clsize))
-    allocate(rcounter(nprotein))
-    allocate(checklist(clsize))
-
-    cllist(1) =mz
-    h = 2
-
-if (settingup .eqv. .true.) then
-    do a = 1,nprotein-nclients
-       if(clnos(a) == clnos(mz)) then
-          if(a/=mz) then
-             cllist(h) = a
-             h = h + 1
-          end if
-       end if
-    end do
-
-else if (settingup .eqv. .false.) then
-    do a = 1,nprotein
-       if(clnos(a) == clnos(mz)) then
-          if(a/=mz) then
-             cllist(h) = a
-             h = h + 1
-          end if
-       end if
-    end do
-end if
-    call clustercom(mz,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge)
-    !   write(6,*) 'comcluster',comcluster
-    !  write(6,*) toolarge
-    !if(toolarge .eqv. .false.) call clustercomcheck(mz,clsize,comcluster,cb,cllist)
-    !write(6,*) 'check comcluster',comcluster
- !call comlargecomp(clsize,dummycom,checklist,route,rcounter,comx,comy,comz,toolarge)
-
-    
-    
-    radofgy = 0.0d0
-    do m = 1,nprotein
-       maxl = chlen(m)
-       do l = 1,maxl
-          sumsq%x = min(abs(protcoords(m,l)%x-comcluster%x),gridsize-abs(protcoords(m,l)%x-comcluster%x))
-          sumsq%y = min(abs(protcoords(m,l)%y-comcluster%y),gridsize-abs(protcoords(m,l)%y-comcluster%y))
-          sumsq%z = min(abs(protcoords(m,l)%z-comcluster%z),gridsize-abs(protcoords(m,l)%z-comcluster%z))
-          radofgy = radofgy + (sumsq%x**2) + (sumsq%y**2) + (sumsq%z**2)
-       end do
-       rogpop = rogpop + maxl
-    end do
-    radofgy = radofgy/rogpop
-
-
-    maxradofgy = 0.0d0
-    do g = 1,clsize
-       m = cllist(g)
-       maxl = chlen(m)
-       do l = 1,maxl
-          sumsq%x = min(abs(protcoords(m,l)%x-comcluster%x),gridsize-abs(protcoords(m,l)%x-comcluster%x))
-          sumsq%y = min(abs(protcoords(m,l)%y-comcluster%y),gridsize-abs(protcoords(m,l)%y-comcluster%y))
-          sumsq%z = min(abs(protcoords(m,l)%z-comcluster%z),gridsize-abs(protcoords(m,l)%z-comcluster%z))
-          maxradofgy = maxradofgy + (sumsq%x**2) + (sumsq%y**2) + (sumsq%z**2)
-       end do
-       maxrogpop = maxrogpop + maxl
-    end do
-    maxradofgy = maxradofgy/maxrogpop
-
-    do g = 1,clsize
-       m = cllist(g)
-       maxl = chlen(m)
-       do l = 1,maxl
-
-          if(((protcoords(m,l)%x-comcluster%x)>maxx) .and. &
-               ((protcoords(m,l)%x-comcluster%x)<(gridsize/2))) maxx =(protcoords(m,l)%x-comcluster%x)
-          if((((gridsize+protcoords(m,l)%x)-comcluster%x)>maxx).and. &
-               (((gridsize+protcoords(m,l)%x)-comcluster%x)<(gridsize/2))) then
-          maxx =((gridsize+protcoords(m,l)%x)-comcluster%x)
-       end if
-       if(((comcluster%x-protcoords(m,l)%x)>minx) .and. &
-           ((comcluster%x-protcoords(m,l)%x)<(gridsize/2))) minx =(comcluster%x-protcoords(m,l)%x)
-          if((((gridsize+comcluster%x)-protcoords(m,l)%x)>minx).and. &
-               (((gridsize+comcluster%x)-protcoords(m,l)%x)<(gridsize/2))) then
-          minx =((gridsize+comcluster%x)-protcoords(m,l)%x)
-       end if       
-
-       if(((protcoords(m,l)%y-comcluster%y)>maxy) .and. &
-           ((protcoords(m,l)%y-comcluster%y)<(gridsize/2))) maxy =(protcoords(m,l)%y-comcluster%y)
-       if((((gridsize+protcoords(m,l)%y)-comcluster%y)>maxy).and. &
-            (((gridsize+protcoords(m,l)%y)-comcluster%y)<(gridsize/2))) then
-          maxy =((gridsize+protcoords(m,l)%y)-comcluster%y)
-       end if
-       if(((comcluster%y-protcoords(m,l)%y)>miny) .and. &
-            ((comcluster%y-protcoords(m,l)%y)<(gridsize/2))) miny =(comcluster%y-protcoords(m,l)%y)
-       if((((gridsize+comcluster%y)-protcoords(m,l)%y)>miny).and. &
-            (((gridsize+comcluster%y)-protcoords(m,l)%y)<(gridsize/2))) then
-          miny =((gridsize+comcluster%y)-protcoords(m,l)%y)
-       end if
-
-       if(((protcoords(m,l)%z-comcluster%z)>maxz) &
-            .and. ((protcoords(m,l)%z-comcluster%z)<(gridsize/2))) maxz =(protcoords(m,l)%z-comcluster%z)
-       if((((gridsize+protcoords(m,l)%z)-comcluster%z)>maxz).and. &
-            (((gridsize+protcoords(m,l)%z)-comcluster%z)<(gridsize/2))) then
-          maxz =((gridsize+protcoords(m,l)%z)-comcluster%z)
-       end if
-       if(((comcluster%z-protcoords(m,l)%z)>minz) &
-            .and. ((comcluster%z-protcoords(m,l)%z)<(gridsize/2))) minz =(comcluster%z-protcoords(m,l)%z)
-       if((((gridsize+comcluster%z)-protcoords(m,l)%y)>minz).and. &
-            (((gridsize+comcluster%z)-protcoords(m,l)%z)<(gridsize/2))) then
-          minz =((gridsize+comcluster%z)-protcoords(m,l)%z)
-       end if
-       
-    end do
- end do
-
-    write(160,*) maxx+minx,maxy+miny,maxz+minz
-    
-    
-    write(77,*) time,radofgy,sqrt(radofgy),maxradofgy,sqrt(maxradofgy)
-
-    
-  end subroutine phase
-
-
-     
-  
-  
-  subroutine updatebondold(m,beadmin,beadmax,tempcoord)
-    integer,intent(in):: m,beadmin,beadmax
-    Type(prottemp),dimension(:),intent(inout) :: tempcoord
-    integer ::l,g,f,bg,bf
-
-
-
-    do l = beadmin,beadmax,1
-
-  
-          protcoords(m,l)%am = tempcoord(l)%am
-          protcoords(m,l)%al = tempcoord(l)%al
-          protcoords(m,l)%bm = tempcoord(l)%bm
-          protcoords(m,l)%bl = tempcoord(l)%bl
-          protcoords(m,l)%cm = tempcoord(l)%cm
-          protcoords(m,l)%cl = tempcoord(l)%cl
-          protcoords(m,l)%dm = tempcoord(l)%dm
-          protcoords(m,l)%dl = tempcoord(l)%dl
-          protcoords(m,l)%em = tempcoord(l)%em
-          protcoords(m,l)%el = tempcoord(l)%el
-          protcoords(m,l)%fm = tempcoord(l)%fm
-          protcoords(m,l)%fl = tempcoord(l)%fl
-       
-    end do
-
-  end subroutine updatebondold
-
-  subroutine vectorspin(m,l,maxl)
-    integer,intent(in)::maxl,m,l
-    integer::p,f,dum1,dum2,no1,no2,maxt,g,bdir,maxback,pr,str
-    integer,dimension(:),allocatable:: tbo
-    type(prottemp),dimension(:),allocatable::tempcoord
-    double precision :: deltaenergy
-    logical :: adjver
-    allocate(tbo(maxl))
-    allocate(tempcoord(maxl))
-
-roatt = roatt + 1   
-    !write(6,*) maxl,maxlength1,maxlength2,protcoords(m,1)%species
-    !do a = 1,nprotein*maxlength
-
-  call bonddirection(tbo(l))
-    tempcoord(l)%x = protcoords(m,l)%x
-    tempcoord(l)%y = protcoords(m,l)%y
-    tempcoord(l)%z = protcoords(m,l)%z
-
-    !if(tempcoord(l)%z == -3) write(6,*) 'failll',time
-    deltaenergy = 0.0d0
-
-    tempcoord(l)%am = protcoords(m,l)%am
-    tempcoord(l)%al = protcoords(m,l)%al
-    tempcoord(l)%bm = protcoords(m,l)%bm
-    tempcoord(l)%bl = protcoords(m,l)%bl
-    tempcoord(l)%cm = protcoords(m,l)%cm
-    tempcoord(l)%cl = protcoords(m,l)%cl
-    tempcoord(l)%dm = protcoords(m,l)%dm
-    tempcoord(l)%dl = protcoords(m,l)%dl
-    tempcoord(l)%em = protcoords(m,l)%em
-    tempcoord(l)%el = protcoords(m,l)%el
-    tempcoord(l)%fm = protcoords(m,l)%fm
-    tempcoord(l)%fl = protcoords(m,l)%fl
-    !call removeenergyintra(m,l,deltaenergy,tempcoord)
-    !call removeenergyinter(m,l,deltaenergy,tempcoord)
-
-if(protcoords(m,l)%type == 3) goto 82
-    
-if(protcoords(m,l)%am /=0) then
-    if(bonddd(m,l) ==1) then
-       g = protcoords(m,l)%am
-       f = protcoords(m,l)%al
-       if(bonddd(g,f) ==-1) then
-          if(g /=m) then
-             deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    if(tbo(l) ==1) then
-       g = protcoords(m,l)%am
-       f = protcoords(m,l)%al
-       if(bonddd(g,f) ==-1) then
-          if(g /=m) then
-             deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-end if
-
-    
-    if(protcoords(m,l)%bm /=0) then
-  if(bonddd(m,l) ==-1) then
-       g = protcoords(m,l)%bm
-       f = protcoords(m,l)%bl
-       if(bonddd(g,f) ==1) then
-          if(g /=m) then
-             deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    if(tbo(l) ==-1) then
-       g = protcoords(m,l)%bm
-       f = protcoords(m,l)%bl
-       if(bonddd(g,f) ==1) then
-          if(g /=m) then
-             deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    end if
-
-    if(protcoords(m,l)%cm /=0) then
-  if(bonddd(m,l) ==2) then
-       g = protcoords(m,l)%cm
-       f = protcoords(m,l)%cl
-       if(bonddd(g,f) ==-2) then
-          if(g /=m) then
-             deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    if(tbo(l) ==2) then
-       g = protcoords(m,l)%cm
-       f = protcoords(m,l)%cl
-       if(bonddd(g,f) ==-2) then
-          if(g /=m) then
-             deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-end if
-
-    
-    if(protcoords(m,l)%dm /=0) then
-      if(bonddd(m,l) ==-2) then
-       g = protcoords(m,l)%dm
-       f = protcoords(m,l)%dl
-       if(bonddd(g,f) ==2) then
-          if(g /=m) then
-             deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    if(tbo(l) ==-2) then
-       g = protcoords(m,l)%dm
-       f = protcoords(m,l)%dl
-       if(bonddd(g,f) ==2) then
-          if(g /=m) then
-             deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-end if
-    if(protcoords(m,l)%em /=0) then
-  if(bonddd(m,l) ==3) then
-       g = protcoords(m,l)%em
-       f = protcoords(m,l)%el
-       if(bonddd(g,f) ==-3) then
-          if(g /=m) then
-             deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    if(tbo(l) ==3) then
-       g = protcoords(m,l)%em
-       f = protcoords(m,l)%el
-       if(bonddd(g,f) ==-3) then
-          if(g /=m) then
-             deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m)then
-             deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-end if
-    
-if(protcoords(m,l)%fm /=0) then
-  if(bonddd(m,l) ==-3) then
-       g = protcoords(m,l)%fm
-       f = protcoords(m,l)%fl
-       if(bonddd(g,f) ==3) then
-          if(g /=m) then
-             deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
-    if(tbo(l) ==-3) then
-       g = protcoords(m,l)%fm
-       f = protcoords(m,l)%fl
-       if(bonddd(g,f) ==3) then
-          if(g /=m) then
-             deltaenergy = deltaenergy + interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          else if(g==m) then
-             deltaenergy = deltaenergy + intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
-          end if
-       end if
-    end if
- end if
-
- 82 continue
-
-    
-    if(Energydecision(deltaenergy) .eqv. .true.) then
-       totalenergy = totalenergy + deltaenergy
-       call updatepos(m,l,l,tempcoord,tbo,maxl)
-       call updatebond(m,l,l,tempcoord)
-       roacc = roacc + 1
-    end if
-    deallocate(tempcoord)
-   
-
-   
-  end subroutine vectorspin
-
-
-subroutine foundation
-    !read in initial positions of the protein
-    integer::m,l,no1,no2,maxl,z
-    character(len = 10) :: BIN,nonsensea,nonsenseb,nonsensec
-integer::totpoints,dummymax,g
-doubleprecision :: rx,ry,rz,bondx,bondy,bondz
-
-
-  totpoints = 0
-  write(6,*) 'nspecies',nspecies,speciespop(1),specieslen(1)
-  do n=1,nspecies-nclientspecies
-     totpoints = totpoints + speciespop(n)*specieslen(n)
-  end do
-
-  write(6,*) 'totpoints',totpoints,nprotein,nclients
-    !read(21,*) BIN
-
-totpoints = totpoints*2
- read(21,*) BIN,BIN,BIN,BIN,BIN,BIN
- do m = 1,nprotein-nclients
-
-
-
-    
-     read(21,*)BIN,BIN,BIN,BIN,BIN,BIN,BIN,protcoords(m,1)%type
-     read(21,*)BIN,BIN,BIN,BIN,BIN,BIN,BIN,BIN
-protcoords(m,1)%species = protcoords(m,1)%type
-     maxl = specieslen(protcoords(m,1)%type)
-     chlen(m) = specieslen(protcoords(m,1)%type)
-     count = count+1
-
-     do l = 2,maxl
-
-        read(21,*)BIN,BIN,BIN,BIN,BIN,BIN,BIN,protcoords(m,l)%type
-        read(21,*)BIN,BIN,BIN,BIN,BIN,BIN,BIN,BIN
-        protcoords(m,l)%species = protcoords(m,l)%type
-        count = count+1
-     end do
-
-  end do
-
-
-  dummymax = totpoints - (nprotein-nclients)
-  do m = 1,dummymax
-     read(21,*)BIN,BIN,BIN
-  end do
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  !accounts for 2 extra lines in energy than in move
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-   
-  do t = 1,freezetime-1
-     read(21,*) BIN
-     read(21,*) nonsensea !BIN
-     !write(6,*) 'a',nonsensea
-     do m = 1,totpoints
-        read(21,*)nonsenseb
-        !write(6,*) 'b',nonsenseb
-     end do
-  end do
-
-     read(21,*) BIN
-        write(6,*) 'BIN',BIN
-     read(21,*) BIN
-  
-     do m = 1,nprotein-nclients,1
-        read(21,*)  BIN,rx,ry,rz
-        !write(6,*) BIN
-        read(21,*) BIN,bondx,bondy,bondz
-protcoords(m,1)%linker = specieslinker(protcoords(m,1)%type)
-        protcoords(m,1)%x = rx/4
-        protcoords(m,1)%y = ry/4
-        protcoords(m,1)%z = rz/4
-
-
-        if((protcoords(m,1)%x-(bondx/4.0) == -0.5) .or. (protcoords(m,1)%x-(bondx/4.0) == (gridsize-0.5))) bonddd(m,1) = 1
-        if((protcoords(m,1)%x-(bondx/4.0) == 0.5) .or. (protcoords(m,1)%x-(bondx/4.0) == -(gridsize-0.5))) bonddd(m,1) = -1
-        if((protcoords(m,1)%y-(bondy/4.0) == -0.5) .or. (protcoords(m,1)%y-(bondy/4.0) == (gridsize-0.5))) bonddd(m,1) = 2
-        if((protcoords(m,1)%y-(bondy/4.0) == 0.5) .or. (protcoords(m,1)%y-(bondy/4.0) == -(gridsize-0.5))) bonddd(m,1) = -2
-        if((protcoords(m,1)%z-(bondz/4.0) == -0.5) .or. (protcoords(m,1)%z-(bondz/4.0) == (gridsize-0.5))) bonddd(m,1) = 3
-        if((protcoords(m,1)%z-(bondz/4.0) == 0.5) .or. (protcoords(m,1)%z-(bondz/4.0) == -(gridsize-0.5))) bonddd(m,1) = -3
-        chlen(m) = specieslen(protcoords(m,1)%type)
-        maxl = chlen(m)
-
-        if(bonddd(m,1) ==0) write(6,*) 'no bond allocation',m,1
-        do l = 2,maxl,1
-        protcoords(m,l)%linker = specieslinker(protcoords(m,l)%type)
-           read(21,*)  BIN,rx,ry,rz
-           read(21,*) BIN,bondx,bondy,bondz
-
-           protcoords(m,l)%x = rx/4
-           protcoords(m,l)%y = ry/4
-           protcoords(m,l)%z = rz/4
-
-           if((protcoords(m,l)%x-(bondx/4.0) == -0.5) .or. (protcoords(m,l)%x-(bondx/4.0) == (gridsize-0.5))) bonddd(m,l) = 1
-           if((protcoords(m,l)%x-(bondx/4.0) == 0.5) .or. (protcoords(m,l)%x-(bondx/4.0) == -(gridsize-0.5))) bonddd(m,l) = -1
-           if((protcoords(m,l)%y-(bondy/4.0) == -0.5) .or. (protcoords(m,l)%y-(bondy/4.0) == (gridsize-0.5))) bonddd(m,l) = 2
-           if((protcoords(m,l)%y-(bondy/4.0) == 0.5) .or. (protcoords(m,l)%y-(bondy/4.0) == -(gridsize-0.5))) bonddd(m,l) = -2
-           if((protcoords(m,l)%z-(bondz/4.0) == -0.5) .or. (protcoords(m,l)%z-(bondz/4.0) == (gridsize-0.5))) bonddd(m,l) = 3
-           if((protcoords(m,l)%z-(bondz/4.0) == 0.5) .or. (protcoords(m,l)%z-(bondz/4.0) == -(gridsize-0.5))) bonddd(m,l) = -3
-           !write(6,*) 'bond',chains(m,l)%bond
-           if(bonddd(m,l) ==0) write(6,*) 'no bond allocation',m,l
-        end do
-     end do
-
-    call debug
-    if(scalinginfo .eqv. .true.) call pdbsetup
-
-
-
- 
-    !write(6,*) 'got to here safe!!!!!!!!!!!!!!!!!!!'
-
-
-    do g = (vtype-nclientspecies)+1,vtype,1
-       write(6,*) 'g !!!!!!!!!!!!!!!!!!!',g,client(g,2)%type,client(g,1)%species
-
-       do m = (nprotein-nclients)+1,(nprotein-nclients)+speciespop(g),1
-                 chlen(m) = specieslen(client(g,1)%species)
-       protcoords(m,1)%species = client(g,1)%species
-       protcoords(m,1)%type = client(g,1)%type
-       protcoords(m,1)%linker = client(g,1)%linker
-       
-       do l =2,chlen(m)
-          protcoords(m,l)%species = client(g,1)%species
-          protcoords(m,l)%type = client(g,l)%type
-          protcoords(m,l)%linker = client(g,l)%linker
-       end do
-       
-    end do
-!write(6,*) 'clienttype',protcoords(441,2)%type
-
-!    write(6,*) 'data',protcoords(441,3)%linker
-    do m = (nprotein-nclients)+1,(nprotein-nclients)+speciespop(g),1
-       write(6,*) 'm',m
-       call setupclient(m)
-       write(6,*) 'finished client 1'
-end do
-
-
-   
-
-end do
-
-do m = nprotein-nclients+1,nprotein,1
-   do l =1,chlen(m)
-      call bonddirection(bonddd(m,l))
-   end do
-end do
-
-call energy(.true.)
-
-
-  end subroutine foundation
-
-
-
-  subroutine setupclient(m)
-    integer,intent(in)::m
-    integer::maxl,hold,protpass,control,gate,i,j,k,dx,dy,dz,g,l,f
-    integer::xbk,ybk,zbk,maxback
-    
-maxl = chlen(m)
-
-
-
-      hold = m
-      write(6,*) 'oooooh',m,protcoords(m,1)%linker
-      
-      control = 1
-      gate = 1
-      protpass = 1
-47    if (protpass ==1) then
-         continue
-      end if
-
-      
-      
-35    continue
-         l = 1
-         i = int(ran2(seed)*gridsize)+1
-         j = int(ran2(seed)*gridsize)+1
-         k = int(ran2(seed)*gridsize)+1
-         !write(6,*) 'e'
-         if (hold /= 1) then
-            do g = 1, hold-1
-               maxback = specieslen(protcoords(g,1)%species)
-               do f = 1,maxback
-                  if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
-                       .and. k == protcoords(g,f)%z ) then
-                     goto 35
-                  else
-                     continue
-                  end if
-               end do
-            end do
-         else
-            continue
-         end if
-
-         protcoords(m,l)%x = i
-         protcoords(m,l)%y = j
-         protcoords(m,l)%z = k
-
-         write(6,*) 'here'
-
-         do l = 2,maxl
-
-            xbk = protcoords(m,l-1)%x
-            ybk = protcoords(m,l-1)%y
-            zbk = protcoords(m,l-1)%z
-
-
-            control = 1
-
-            
-15          continue
-
-!write(6,*) 'linkerlen',protcoords(m,l)%linker
-               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
-               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
-               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,l-1)%linker)+1))
-
-
-
-               if(sqrt(real((dx**2) + (dy**2) + (dz**2))) > protcoords(m,l-1)%linker) goto 15
-               
-
-                     i = modulo(xbk+dx-1,gridsize)+1
-                     j = modulo(ybk +dy-1,gridsize)+1
-                     k  = modulo(zbk+dz-1,gridsize)+1
-
-               do g = 1, hold-1
-               maxback = specieslen(protcoords(g,1)%species)
-                  do f = 1,maxback
-                     if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
-                          .and. k == protcoords(g,f)%z) then
-                           goto 15
-                        end if
-                  end do
-               end do
-
-               do f = 1,maxl
-                  if (i == protcoords(hold,f)%x .and. j == protcoords(hold,f)%y &
-                       .and. k == protcoords(hold,f)%z) then
-                        goto 15
-                  end if
-               end do
-
-               protcoords(m,l)%x = i
-               protcoords(m,l)%y = j
-               protcoords(m,l)%z = k
-
-       
-  
-             end do
-  
-
- 
-
-
-    
-     end subroutine setupclient
-
-    subroutine foundationrestart
-    !read in initial positions of the protein
-    integer::m,l,no1,no2,maxl,z,a
-        double precision :: vb,vc
-    character(len = 10) :: BIN
-    read(23,*) lastruntime,totrmsbrute,suffclust
-lastruntime = abs(lastruntime)
-    do m = 1,nprotein,1
-       read(23,*) protcoords(m,1)%species, protcoords(m,1)%x, protcoords(m,1)%y, protcoords(m,1)%z,&
-            protcoords(m,1)%type,bonddd(m,1),chlen(m),protcoords(m,1)%linker
-
-       maxl = chlen(m)
-
-       do l = 2,maxl,1
-          !write(6,*) l
-          read(23,*) protcoords(m,l)%species, protcoords(m,l)%x, protcoords(m,l)%y, protcoords(m,l)%z,&
-               protcoords(m,l)%type,bonddd(m,l)
-       end do
-    end do
-open(108,file= 'bonddate.dat',action= 'read')
-    do a = 1,nclients
-       read(108,*)sumclient(a,:),vc,vb,unbound(a,:),totalbindevents(1),totalbindevents(2),totalbindevents(3)
-    end do
-close(108)
-    
-do a = 1,nclients
-sumsep = vc*sumclient(a,clientlength+1)
-bulksumsep = vb*sumclient(a,2*(clientlength+1))
-end do
-
-
-    call energy(.TRUE.)
-    call debug
-
-    close(23)
-  end subroutine foundationrestart
-
-  
-
-  subroutine rotate(m,l,b,tempcoords,xx,xy,xz,yx,yy,yz,zx,zy,zz,dx,dy,dz)
-    integer,intent(in):: m,l,b,xx,xy,xz,yx,yy,yz,zx,zy,zz,dx,dy,dz
-    type(prottemp),dimension(:),intent(inout) :: tempcoords
-    !write(6,*) dx,dy,dz
-    tempcoords(b)%x = modulo(protcoords(m,l)%x + (xx*dx) + (xy*dy) + (xz*dz) -1,gridsize)+1
-    tempcoords(b)%y = modulo(protcoords(m,l)%y + (yx*dx) + (yy*dy) + (yz*dz)-1,gridsize)+1
-    tempcoords(b)%z = modulo(protcoords(m,l)%z + (zx*dx) + (zy*dy) + (zz*dz)-1,gridsize)+1
-
-  end subroutine rotate
-
- subroutine pickmoves
-    integer:: scans,m,maxl,decide,l,a
-
-scans = 1
-
-    decide = int(ran2(seed)*12)+1
-
-    if(decide <= 4) then
-       do a=1,maxlength
-       m =int(ran2(seed)*(nprotein))+1
-        maxl = chlen(m)
-       l = int(ran2(seed)*(maxl))+1
-       call vectorspin(m,l,maxl)
-       end do
-    end if
-    if((decide > 4) .and. (decide <= 6)) call reptation
-    if((decide > 6) .and. (decide <= 8)) call positioning
-   if((decide > 8) .and. (decide <= 10)) call teleport
-
-
-    
-        if((modulo(time,maxtime/100) == 0)) then
-        write(29,*) (time-equilib)*scans, real(totrmsbrute)/nprotein
-     end if
-
-   end subroutine pickmoves
-
-   
-  logical Function Energydecision(denergy)
-    double precision, intent(in) :: denergy
-    if(denergy <= 0.0) then
-       Energydecision = .True.
-    else if(exp(-denergy/kT) > ran2(seed)) then
-       Energydecision = .True.
-    else
-       Energydecision = .False.
-    end if
-  end Function Energydecision
-
- 
-
-  subroutine positioning
-    !performs a diagonal flip on a bead that has its two connecting beads perpendicular to each other
-    integer :: m,l,deltax1,deltax2,deltay1,deltay2,deltaz1,deltaz2,dx,dy,dz,bdir,str
-    double precision :: deltaenergy
-    logical :: rac,racc,adjver
-    integer:: st,pr,maxl,maxback,decide
-    !double precision::sumdebug
-    type(prottemp),dimension(:),allocatable :: tempcoord
-    integer,dimension(:),allocatable::tbo
-    !integer::fakex,fakey,fakez
-    allocate(tempcoord(maxlength))
-    allocate(tbo(maxlength))
-!return    
-    rac = .true.
-
-    
-    m = ((nprotein-nclients) +int(ran2(seed)*nclients))+1
- 
-   maxl = chlen(m)
-
-if(maxl ==1) then
-       call singlemove(m)
-       return
-    end if
-
-
-   l = int(ran2(seed)*maxl)+1
-       dx = 0
-       dy = 0
-       dz = 0
-       !write(6,*) 'positioning'
-
-
-!15     continue
-       
-!               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
- !              dy = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
- !              dz = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
-
-decide = int(ran2(seed)*3)+1
-
-SELECT CASE (decide)
-
-CASE (1)
-dx = 1
-CASE (2)
-dx = 0
-CASE (3)
-dx = -1
-
-END SELECT
-
-decide = int(ran2(seed)*3)+1
-
-SELECT CASE (decide)
-
-CASE (1)
-dy = 1
-CASE (2)
-dy = 0
-CASE (3)
-dy = -1
-
-END SELECT
-
-decide = int(ran2(seed)*3)+1
-
-SELECT CASE(decide)
-
-CASE (1)
-dz = 1
-CASE (2)
-dz = 0
-CASE (3)
-dz = -1
-
-END SELECT
-
-
-               !if((dx**2 + dy**2 + dz**2) > protcoords(m,1)%linker) goto 15
-               
-
-
-
-    tempcoord(l)%x = modulo(protcoords(m,l)%x+dx-1,gridsize)+1
-    tempcoord(l)%y = modulo(protcoords(m,l)%y+dy-1,gridsize)+1
-    tempcoord(l)%z = modulo(protcoords(m,l)%z+dz-1,gridsize)+1
-
-
-if(l>1) then
-    dx = min(abs(tempcoord(l)%x - protcoords(m,l-1)%x),gridsize-abs(tempcoord(l)%x &
-         - protcoords(m,l-1)%x)) 
-    dy = min(abs(tempcoord(l)%y - protcoords(m,l-1)%y),gridsize- abs(tempcoord(l)%y &
-         - protcoords(m,l-1)%y)) 
-    dz = min(abs(tempcoord(l)%z - protcoords(m,l-1)%z),gridsize - abs(tempcoord(l)%z &
-         - protcoords(m,l-1)%z)) 
-
- sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
-    if(sumdebug > protcoords(m,1)%linker) then
-       rac = .false.
-        goto 37
-    end if
-    end if
-
-    if(l<maxl) then
-
-     dx = min(abs(tempcoord(l)%x - protcoords(m,l+1)%x),gridsize-abs(tempcoord(l)%x &
-         - protcoords(m,l+1)%x)) 
-    dy = min(abs(tempcoord(l)%y - protcoords(m,l+1)%y),gridsize- abs(tempcoord(l)%y &
-         - protcoords(m,l+1)%y)) 
-    dz = min(abs(tempcoord(l)%z - protcoords(m,l+1)%z),gridsize - abs(tempcoord(l)%z &
-         - protcoords(m,l+1)%z)) 
-
-    sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
-    if(sumdebug > protcoords(m,1)%linker) then
-        rac = .false.
-        goto 37
-    end if
-end if
-
-
-deltaenergy = 0.0d0        
-       do st = 1,maxl,1
-          if(st /=l) then
-             if(overlaps(m,l,st,tempcoord) .eqv. .false.) then
-                rac = .false.
-                goto 37
-             end if
-          end if
-       end do
-
-       do pr = 1,nprotein,1
-          if(pr /= m) then
-             maxback = chlen(pr)
-             do st = 1,maxback,1
-                if(overlaps(pr,l,st,tempcoord) .eqv. .false.) then
-                   rac = .false.
-                   goto 37
-                end if
-             end do
-          end if
-       end do
-
-          tempcoord(l)%am = 0
-          tempcoord(l)%bm = 0
-          tempcoord(l)%cm = 0
-          tempcoord(l)%dm = 0
-          tempcoord(l)%em = 0
-          tempcoord(l)%fm = 0
-
-       
-       call bonddirection(tbo(l))
-
-          call removeenergyintra(m,l,deltaenergy,tempcoord)
-          call removeenergyinter(m,l,deltaenergy,tempcoord)
-
-          do str = 1,l-3,1
-             call adjacent(m,l,str,tempcoord,adjver,bdir)
-             if((adjver.eqv. .true.)) then
-                call bondformintra(m,l,str,tempcoord,tbo,bdir,deltaenergy)
-             end if
-          end do
-          do str = l+3,maxl,1
-             call adjacent(m,l,str,tempcoord,adjver,bdir)
-             if((adjver.eqv. .true.)) then
-                call bondformintra(m,l,str,tempcoord,tbo,bdir,deltaenergy)
-             end if
-          end do
-
-          do pr = 1,nprotein
-             if(pr /= m) then
-                maxback = chlen(pr)
-                do str = 1,maxback
-                   call adjacent(pr,l,str,tempcoord,adjver,bdir)
-                   if((adjver.eqv. .true.)) then
-                      call bondforminter(m,pr,l,str,tempcoord,tbo,bdir,deltaenergy)
-                   end if
-                end do
-             end if
-          end do
-
-   !if(fakex /= tempcoord(l)%x) write(6,*) 'x change'
-   !if(fakey /= tempcoord(l)%y) write(6,*) 'y change'
-    !if(fakez /= tempcoord(l)%z) write(6,*) 'z change'
-
-   
-       
-       !if(NINT(deltaenergy) /= 0) write(6,*) 'pivot',deltaenergy
-       if(Energydecision(deltaenergy) .eqv. .true.) then
-          totalenergy = totalenergy + deltaenergy
-          call updatepos(m,l,l,tempcoord,tbo,maxl)
-          call updatebond(m,l,l,tempcoord)
-macc = macc + 1
-       else
-          rac = .false.
-          goto 37
-       end if
-
-
-37  if (rac .eqv. .false.) then
-  mrej = mrej + 1
     end if
   end subroutine positioning
 
@@ -2172,7 +1141,7 @@ macc = macc + 1
        protcoords(chainnum,beadnum)%y = tempcoord(beadnum)%y
        protcoords(chainnum,beadnum)%z = tempcoord(beadnum)%z
        bonddd(chainnum,beadnum) = tbo(beadnum)
-     end do
+    end do
 
     call comfind(chainnum,.TRUE.)
 
@@ -2180,8 +1149,224 @@ macc = macc + 1
     !call rms(chainnum)
   end subroutine updatepos
 
+  subroutine updatecluspos(tempcluscoord,ctbo,tcom,cllist,clsize)
+    !updates bead positions
+    integer,dimension(:),intent(in) :: cllist
+    integer,dimension(:,:),intent(in)::ctbo
+    integer,intent(in) :: clsize
+    Type(prottemp),dimension(:,:),intent(in) :: tempcluscoord
+    type(centremass),dimension(:),intent(in)::tcom
+    integer ::b,l,a,maxback,ra
+    !moves beads to new positions and reassigns isobonding
+
+    do ra = 1,clsize
+       a = cllist(ra)
+       maxback = chlen(a)
+       !call rms(a)
+       do l = 1,maxback,1
+          protcoords(a,l)%x = tempcluscoord(a,l)%x
+          protcoords(a,l)%y = tempcluscoord(a,l)%y
+          protcoords(a,l)%z = tempcluscoord(a,l)%z
+          bonddd(a,l) = ctbo(a,l)
+
+       end do
+       com(2,a)%x = com(1,a)%x
+       com(2,a)%y = com(1,a)%y
+       com(2,a)%z = com(1,a)%z
+       com(1,a)%x = tcom(a)%x
+       com(1,a)%y = tcom(a)%y
+       com(1,a)%z = tcom(a)%z
+       !call comfind(a,.TRUE.)
+       !call rms(a)
+       call tracking(a)
+    end do
+
+    !write(6,*) 'successful cluster move'
+  end subroutine updatecluspos
+
+
+  subroutine clusterassignmove(chainnum,cllist,clsize,cl)
+    !Subroutine for assigning the chains connected to the    !
+    ! chain of interest into a  clusters                     !  
+    integer,intent(in) :: chainnum
+    integer,dimension(:),intent(inout)::cllist
+    logical,dimension(:),intent(inout)::cl
+    integer,intent(inout):: clsize
+    integer:: m,l,g,f,clcount,bdir,maxl,a,z
+    logical :: clusyes
+
+
+    clusyes = .true.
+
+    cllist(1) = chainnum
+    cl(chainnum) = .true.
+    clsize = 1
+    a = 1
+
+
+    !do z = 1,clsize
+    z = 1
+    do while(z<=a)
+       m = cllist(z)
+       !write(6,*) 'cluster assign output',m,a,cllist(a),clsize
+       maxl = chlen(m)
+       do l = 1,maxl
+          if(protcoords(m,l)%am > 0) then
+             call clusteraid(cllist,clsize,-1,a,m,l,cl)
+          end if
+          if(protcoords(m,l)%bm > 0) then
+             call clusteraid(cllist,clsize,1,a,m,l,cl)
+          end if
+          if(protcoords(m,l)%cm > 0) then
+             call clusteraid(cllist,clsize,-2,a,m,l,cl)
+          end if
+          if(protcoords(m,l)%dm > 0) then
+             call clusteraid(cllist,clsize,2,a,m,l,cl)
+          end if
+          if(protcoords(m,l)%em > 0) then
+             call clusteraid(cllist,clsize,-3,a,m,l,cl)
+          end if
+          if(protcoords(m,l)%fm > 0) then
+             call clusteraid(cllist,clsize,3,a,m,l,cl)
+          end if
+       end do
+       z = z+1
+    end do
+
+
+
+  end subroutine clusterassignmove
+
+  subroutine clusteraid(cllist,cluspop,bdir,a,m,l,cl)
+    !subroutine used by clusterassignmove to check if a bead is bound to its nearest neighbour  !
+    ! i.e. the bond vectors point towards each other                                            !
+
+    integer,intent(in) :: bdir,m,l
+    integer,intent(inout)::a,cluspop
+    logical,dimension(:),intent(inout)::cl
+    integer,dimension(:),intent(inout):: cllist
+    integer :: f,g
+
+
+    if(bdir == -1) then
+       g = protcoords(m,l)%am
+       f = protcoords(m,l)%al
+    else if(bdir == 1) then
+       g = protcoords(m,l)%bm
+       f = protcoords(m,l)%bl
+    else if(bdir == -2) then
+       g = protcoords(m,l)%cm
+       f = protcoords(m,l)%cl
+    else if(bdir == 2) then
+       g = protcoords(m,l)%dm
+       f = protcoords(m,l)%dl
+    else if(bdir == -3) then
+       g = protcoords(m,l)%em
+       f = protcoords(m,l)%el
+    else if(bdir == 3) then
+       g = protcoords(m,l)%fm
+       f = protcoords(m,l)%fl
+    end if
+
+
+    if(cl(g) .eqv. .true.) goto 31
+
+    if(isbond .eqv. .true.) then
+       if(interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0) then
+          a = a + 1
+          cllist(a) = g
+          cl(g) = .true.
+          cluspop = cluspop + 1
+          goto 31
+       end if
+    end if
+    if((bdir == bonddd(g,f)) .and. (bdir == (-1*bonddd(m,l))) .and. &
+         (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0)) then
+       if(cl(g) .eqv. .true.) goto 31
+       a = a + 1
+       cllist(a) = g
+       cl(g) = .true.
+       cluspop = cluspop + 1
+    end if
+
+
+
+31  continue
+
+  end subroutine clusteraid
+
+
+
+  !Redundant ***************************************************************************************
+  subroutine clusterassign(chainnum,clno,clsize,cb)
+    !Redundant SUbroutine
+    integer,intent(in) :: chainnum
+    integer,dimension(:),intent(inout):: clno
+    integer,dimension(:,:),intent(inout)::cb
+    integer,intent(inout):: clsize
+    integer:: m,l,g,f,clcount,bdir,maxlengthss,maxback,zzz,dum2,dum1,oldcl
+    logical :: clusyes,adjver
+    type(prottemp),dimension(:),allocatable :: tempcoord
+
+    allocate(tempcoord(maxlength))
+    clusyes = .true.
+    do m = 1,nprotein
+       clno(m) = m
+       do g = 1,nprotein
+          cb(m,g) = 0
+       end do
+    end do
+
+    do m = 1,nprotein-1,1
+       maxback = chlen(m)
+       do g = m+1,nprotein,1
+
+          maxlengthss = chlen(g)
+
+          do l = 1,maxback
+             tempcoord(l)%x = protcoords(m,l)%x
+             tempcoord(l)%y = protcoords(m,l)%y
+             tempcoord(l)%z = protcoords(m,l)%z
+             do f = 1,maxlengthss
+                call adjacent(g,l,f,tempcoord,adjver,bdir)              
+                if(adjver.eqv. .true.) then
+                   if((bdir == bonddd(g,f)) .and. (bdir == (-1*bonddd(m,l))) .and. &
+                        (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0)) then
+                      if((m == 2)) write(49,*) time,g
+                      if((g == 2)) write(49,*) time,m
+                      cb(m,g) = 1
+                      cb(g,m) = 1
+                      if(clno(g) < clno(m)) then
+                         oldcl = clno(m)
+                         do zzz = 1,nprotein
+                            if(clno(zzz) == oldcl) clno(zzz) = clno(g)
+                         end do
+                      else if(clno(g)> clno(m)) then
+                         oldcl =clno(g)
+                         do zzz = 1,nprotein
+                            if(clno(zzz) == oldcl) clno(zzz) = clno(m)
+                         end do
+                      end if
+                      clusyes = .true.                 
+                   end if
+                end if
+             end do
+          end do
+       end do
+    end do
+
+    clsize = 0
+
+    do m = 1,nprotein
+       if(clno(m) == clno(chainnum)) clsize = clsize + 1
+       !if(clno(m) == clno(chainnum))write(6,*) 'cluster info',time,m
+    end do
+  end subroutine clusterassign
+  !Redundant *********************************************************************************************
   
+
   subroutine removeenergyintra(m,l,deltaenergy,tempcoord)
+    !removes the energy for the bonds that are potentially going to be broken by the move
     integer,intent(in)::m,l
     double precision,intent(inout)::deltaenergy
     type(prottemp),dimension(:),intent(inout)::tempcoord
@@ -2240,6 +1425,7 @@ macc = macc + 1
 
 
   subroutine removeenergyinter(m,l,deltaenergy,tempcoord)
+    !removes energy for interchain bonds that will potentially be broken by the move
     integer,intent(in)::m,l
     double precision,intent(inout)::deltaenergy
     type(prottemp),dimension(:),intent(inout)::tempcoord
@@ -2317,6 +1503,7 @@ macc = macc + 1
   end subroutine removeenergyinter
 
   subroutine bondformintra(m,l,st,tempcoord,tbo,bdir,deltaenergy)
+    !Forms bond around the beads that have been moved (intrachain bonds)
     integer,intent(in)::m,l,st,bdir
     double precision,intent(inout)::deltaenergy
     type(prottemp),dimension(:),intent(inout):: tempcoord
@@ -2379,6 +1566,7 @@ macc = macc + 1
   end subroutine bondformintra
 
   subroutine bondforminter(m,g,l,st,tempcoord,tbo,bdir,deltaenergy)
+    !Forms bonds from the beads that have been moved (inter chain)
     integer,intent(in)::m,l,st,g,bdir
     double precision,intent(inout)::deltaenergy
     type(prottemp),dimension(:),intent(inout):: tempcoord
@@ -2386,7 +1574,6 @@ macc = macc + 1
     !check this and cluster bonds update
 
 
-    !write(6,*) 'm',m,'l',l,'g',g,'st',st
     deltaenergy = deltaenergy + interen(protcoords(m,l)%type,protcoords(g,st)%type)
     if(bdir == -1) then
        tempcoord(l)%am = g
@@ -2442,6 +1629,7 @@ macc = macc + 1
   end subroutine bondforminter
 
   subroutine updatebondother(m,bead,tempcoord)
+    !Subroutine to update bonds and nearest neighbour list for reptation move
     integer,intent(in):: m,bead
     Type(prottemp),dimension(:),intent(inout) :: tempcoord
     integer ::l,g,f
@@ -2450,7 +1638,6 @@ macc = macc + 1
     if(tempcoord(bead)%am == -1) then
        g = protcoords(m,bead)%am
        f = protcoords(m,bead)%al
-       !write(6,*) 'info again 1/2',m,bead,g,f
        protcoords(g,f)%bl = 0
        protcoords(g,f)%bm = 0
     end if
@@ -2458,7 +1645,6 @@ macc = macc + 1
     if(tempcoord(bead)%bm == -1) then
        g = protcoords(m,bead)%bm
        f = protcoords(m,bead)%bl
-       !write(6,*) 'info again 2/2',m,bead
        protcoords(g,f)%al = 0
        protcoords(g,f)%am = 0
     end if
@@ -2498,18 +1684,17 @@ macc = macc + 1
 
 
   subroutine updatebond(m,beadmin,beadmax,tempcoord)
+    !updates bonds and nearest neighbour list 
     integer,intent(in):: m,beadmin,beadmax
     Type(prottemp),dimension(:),intent(inout) :: tempcoord
     integer ::l,g,f,bg,bf
 
-    !write(6,*) 'updateeeee'
 
     do l = beadmin,beadmax,1
 
        if(tempcoord(l)%am == -1) then
           g = protcoords(m,l)%am
           f = protcoords(m,l)%al
-          !write(6,*) 'bond kill',m,l,g,f
           if(g/=m) then
              if((protcoords(g,f)%bm == m) .and. (protcoords(g,f)%bl == l)) then
                 protcoords(g,f)%bl = 0
@@ -2554,7 +1739,7 @@ macc = macc + 1
           protcoords(m,l)%am = tempcoord(l)%am
           protcoords(m,l)%al = tempcoord(l)%al
 
-          !write(6,*) 'bond form',m,l,g,f
+
           if(g==m) then
              if((f<beadmin) .or. (f>beadmax)) then
                 protcoords(g,f)%bl = l
@@ -2570,8 +1755,6 @@ macc = macc + 1
        if(tempcoord(l)%bm == -1) then
           g = protcoords(m,l)%bm
           f = protcoords(m,l)%bl
-          !write(6,*) 'help',m,l,g,f,tempcoord(l)%bm
-          !write(6,*) 'bond kill',m,l,g,f
           if(g/=m) then
              if((protcoords(g,f)%am == m) .and. (protcoords(g,f)%al == l)) then
                 protcoords(g,f)%al = 0
@@ -2685,7 +1868,7 @@ macc = macc + 1
              protcoords(g,f)%dl = l
              protcoords(g,f)%dm = m 
           end if
-          end if
+       end if
 
 
        if(tempcoord(l)%dm == -1) then
@@ -2743,7 +1926,7 @@ macc = macc + 1
           else if(g/=m) then
              protcoords(g,f)%cl = l
              protcoords(g,f)%cm = m
-             end if
+          end if
        end if
 
 
@@ -2801,10 +1984,10 @@ macc = macc + 1
                 protcoords(g,f)%fl = l
                 protcoords(g,f)%fm = m
              end if
-         else if(g/=m) then
+          else if(g/=m) then
              protcoords(g,f)%fl = l
              protcoords(g,f)%fm = m
-             end if
+          end if
        end if
 
        if(tempcoord(l)%fm == -1) then
@@ -2862,10 +2045,10 @@ macc = macc + 1
                 protcoords(g,f)%em = m
                 !                if(f == 310) write(6,*) 'results',protcoords(1,310)%el,protcoords(1,310)%em
              end if
-         else if(g/=m) then
+          else if(g/=m) then
              protcoords(g,f)%el = l
              protcoords(g,f)%em = m
-             end if
+          end if
        end if
        !if(l==38) write(6,*) protcoords(1,43)%am,protcoords(1,43)%al
     end do
@@ -2874,6 +2057,7 @@ macc = macc + 1
 
 
   subroutine updatebondrep(m,beadmin,beadmax,tempcoord,del)
+    !updates bonds and neearest neighbour after reptation (different to updatebondother)
     integer,intent(in):: m,beadmin,beadmax,del
     Type(prottemp),dimension(:),intent(inout) :: tempcoord
     integer ::l,g,f
@@ -2981,16 +2165,16 @@ macc = macc + 1
 
 
   subroutine reptation
-    !perform reptation
+    !perform reptation move
     double precision :: choose,deltaenergy
     integer :: g,g1,g2,g3,g4,g5,g6,m,l,dxx,dyx,dzx,direc
     integer:: st,pr,dx,dy,dz,chain2,beads2,bdir,maxl,maxback,str
     logical :: reptcont,adjver
     type(prottemp),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable::tbo
-!return
 
-    !write(6,*) 'for information',protcoords(20,6)%dm,protcoords(20,6)%dl
+
+
     t = time + 1
 
     !choose = -0.5
@@ -2998,64 +2182,53 @@ macc = macc + 1
     !write(6,*) 'reptation start',choose
 
     reptcont = .true.
-     m = ((nprotein-nclients) +int(ran2(seed)*nclients))+1
-    
-!if(protcoords(m,1)%species == 3) then
-!call clusterposition
-!return
-!end if
+    m =int(ran2(seed)*(nprotein))+1
+
+    !if(protcoords(m,1)%species == 3) then
+    !call clusterposition
+    !return
+    !end if
 
 
-     maxl = chlen(m)
+    maxl = chlen(m)
 
-
-     if(maxl ==1) then
-       call singlemove(m)
-       return
-    end if
-    !write(6,*) 'maxl',maxl,m
     allocate(tempcoord(maxl))
     allocate(tbo(maxl))
 
 
-   
+
     direc = int(ran2(seed)*5) +1
-    !if(time == 3387) write(6,*) 'choooooose =', choose,direc,m
     if (choose > 0.0) then
 
 19     continue
-       
-               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+
+       dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+       dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+       dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
 
 
 
-               if(sqrt(real((dx**2 + dy**2 + dz**2))) > protcoords(m,1)%linker) goto 19
+       if(sqrt(real((dx**2) + (dy**2) + (dz**2))) > protcoords(m,1)%linker) goto 19
 
 
 
-      
+
        tempcoord(1)%x = modulo(protcoords(m,1)%x + dx-1,gridsize)+1
        tempcoord(1)%y = modulo(protcoords(m,1)%y + dy-1,gridsize)+1
        tempcoord(1)%z = modulo(protcoords(m,1)%z + dz-1,gridsize)+1
 
-     dx = min(abs(tempcoord(1)%x - protcoords(m,2)%x),gridsize-abs(tempcoord(1)%x &
-         - protcoords(m,2)%x)) 
-    dy = min(abs(tempcoord(1)%y - protcoords(m,2)%y),gridsize- abs(tempcoord(1)%y &
-         - protcoords(m,2)%y)) 
-    dz = min(abs(tempcoord(1)%z - protcoords(m,2)%z),gridsize - abs(tempcoord(1)%z &
-         - protcoords(m,2)%z)) 
+       dx = min(abs(tempcoord(1)%x - protcoords(m,2)%x),gridsize-abs(tempcoord(1)%x &
+            - protcoords(m,2)%x)) 
+       dy = min(abs(tempcoord(1)%y - protcoords(m,2)%y),gridsize- abs(tempcoord(1)%y &
+            - protcoords(m,2)%y)) 
+       dz = min(abs(tempcoord(1)%z - protcoords(m,2)%z),gridsize - abs(tempcoord(1)%z &
+            - protcoords(m,2)%z)) 
 
-    sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
-    if(sumdebug > real(protcoords(m,1)%linker)) then
-       reptcont = .false.
-       goto 83
-    end if
- 
-       ! write(6,*) tbdi(1),dx,dy,dz
-       ! write(6,*) tempcoord(1)%x,tempcoord(1)%y,tempcoord(1)%z
-       ! write(6,*) protcoords(m,1)%x,protcoords(m,1)%y,protcoords(m,1)%z
+       sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
+       if(sumdebug > real(protcoords(m,1)%linker)) then
+          reptcont = .false.
+          goto 83
+       end if
 
        deltaenergy = 0.0d0
 
@@ -3078,8 +2251,8 @@ macc = macc + 1
           end do
        end do
 
- call bonddirection(tbo(1))
-       
+       call bonddirection(tbo(1))
+
        tempcoord(maxl)%am = 0
        tempcoord(maxl)%bm = 0
        tempcoord(maxl)%cm = 0
@@ -3096,14 +2269,14 @@ macc = macc + 1
        tempcoord(1)%em = 0
        tempcoord(1)%fm = 0
 
-       do st = 3,maxl-1
+       do st = 1,maxl-1
           call adjacent(m,1,st,tempcoord,adjver,bdir)
           if((adjver.eqv. .true.)) then
              call bondformintra(m,1,st,tempcoord,tbo,bdir,deltaenergy)
           end if
        end do
 
-       !if(deltaenergy<0.0)write(6,*) 'energy post intra=',deltaenergy
+
 
        do pr = 1,nprotein
           if(pr /= m) then
@@ -3117,14 +2290,14 @@ macc = macc + 1
           end if
        end do
 
-       !if(deltaenergy<0.0) write(6,*) 'energy post inter=',deltaenergy
+
        !section to adjust for change in types
 
 
        call reptationtype(m,1,deltaenergy,tempcoord,1)
 
 
-       !if(deltaenergy<0.0)write(6,*) 'energy final=',deltaenergy
+
        if(Energydecision(deltaenergy) .eqv. .true.) then
 
           totalenergy = totalenergy + deltaenergy
@@ -3140,41 +2313,41 @@ macc = macc + 1
           call updatebondrep(m,1,1,tempcoord,1)
           successful = successful + 1
           reptforward = reptforward + 1
-reacc = reacc +1      
- else
+          reacc = reacc +1      
+       else
           reptcont = .false.
        end if
     else if (choose < 0.0) then
 
-      
+
 15     continue
-       
-               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+
+       dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+       dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+       dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
 
 
 
-               if(sqrt(real((dx**2 + dy**2 + dz**2))) > protcoords(m,1)%linker) goto 15
+       if(sqrt(real((dx**2) + (dy**2) + (dz**2))) > protcoords(m,1)%linker) goto 15
 
 
        tempcoord(maxl)%x = modulo(protcoords(m,maxl)%x + dx-1,gridsize)+1
        tempcoord(maxl)%y = modulo(protcoords(m,maxl)%y + dy-1,gridsize)+1
        tempcoord(maxl)%z = modulo(protcoords(m,maxl)%z + dz-1,gridsize)+1
 
-     dx = min(abs(tempcoord(maxl)%x - protcoords(m,maxl-1)%x),gridsize-abs(tempcoord(maxl)%x &
-         - protcoords(m,maxl-1)%x)) 
-    dy = min(abs(tempcoord(maxl)%y - protcoords(m,maxl-1)%y),gridsize- abs(tempcoord(maxl)%y &
-         - protcoords(m,maxl-1)%y)) 
-    dz = min(abs(tempcoord(maxl)%z - protcoords(m,maxl-1)%z),gridsize - abs(tempcoord(maxl)%z &
-         - protcoords(m,maxl-1)%z)) 
+       dx = min(abs(tempcoord(maxl)%x - protcoords(m,maxl-1)%x),gridsize-abs(tempcoord(maxl)%x &
+            - protcoords(m,maxl-1)%x)) 
+       dy = min(abs(tempcoord(maxl)%y - protcoords(m,maxl-1)%y),gridsize- abs(tempcoord(maxl)%y &
+            - protcoords(m,maxl-1)%y)) 
+       dz = min(abs(tempcoord(maxl)%z - protcoords(m,maxl-1)%z),gridsize - abs(tempcoord(maxl)%z &
+            - protcoords(m,maxl-1)%z)) 
 
-    sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
-    if(sumdebug > real(protcoords(m,1)%linker)) then
-       reptcont = .false.
-       goto 83
-    end if
-       
+       sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
+       if(sumdebug > real(protcoords(m,1)%linker)) then
+          reptcont = .false.
+          goto 83
+       end if
+
        deltaenergy = 0.0d0
 
 
@@ -3199,8 +2372,8 @@ reacc = reacc +1
           end if
        end do
 
- call bonddirection(tbo(maxl))
-       
+       call bonddirection(tbo(maxl))
+
        tempcoord(1)%am = 0
        tempcoord(1)%bm = 0
        tempcoord(1)%cm = 0
@@ -3218,7 +2391,7 @@ reacc = reacc +1
        tempcoord(maxl)%em = 0
        tempcoord(maxl)%fm = 0
 
-       do st = 2,maxl-2
+       do st = 2,maxl
           call adjacent(m,maxl,st,tempcoord,adjver,bdir)
           if((adjver.eqv. .true.)) then
              call bondformintra(m,maxl,st,tempcoord,tbo,bdir,deltaenergy)
@@ -3251,26 +2424,26 @@ reacc = reacc +1
              protcoords(m,l)%z = protcoords(m,l+1)%z
              bonddd(m,l) = bonddd(m,l+1)
           end do
-          
+
           call updatebondother(m,1,tempcoord)
           tempcoord(maxl-1)%x = protcoords(m,maxl-1)%x
           tempcoord(maxl-1)%y = protcoords(m,maxl-1)%y
           tempcoord(maxl-1)%z = protcoords(m,maxl-1)%z
           tbo(maxl-1) = bonddd(m,maxl-1)
-        
+
           call updatepos(m,maxl-1,maxl,tempcoord,tbo,maxl)
           call reptationadjust(m,1,maxl-1,tempcoord,1)
           call updatebondrep(m,maxl,maxl,tempcoord,-1)
           successful = successful + 1
           reptbackward = reptbackward + 1
-reacc = reacc + 1       
-else
+          reacc = reacc + 1       
+       else
           reptcont = .false.
        end if
     end if
 83  if (reptcont .eqv. .false.) then
        reject = reject + 1
-rerej = rerej +1
+       rerej = rerej +1
     end if
 
 
@@ -3279,6 +2452,7 @@ rerej = rerej +1
 
 
   subroutine reptationadjust(m,beadmin,beadmax,tempcoord,del)
+    !moves bond neighbour list along the chain to account for reptation
     integer,intent(in)::m,beadmin,beadmax,del
     type(prottemp),dimension(:),intent(inout)::tempcoord
     integer :: g,f,l,buzz
@@ -3301,7 +2475,7 @@ rerej = rerej +1
              else
                 protcoords(m,l)%am = 0
              end if
-             !  end if
+      
           else if(g/=m) then
              protcoords(m,l)%al = protcoords(m,l+del)%al
              f = protcoords(m,l)%al
@@ -3313,19 +2487,13 @@ rerej = rerej +1
        g = protcoords(m,l+del)%bm
        if(g /=0) then
           if(g == m) then
-             !if((del == 1) .and. (protcoords(m,l+del)%bl > l+2)) then
-             !protcoords(m,l)%bl = protcoords(m,l+del)%bl - del
-             !else if((del == -1) .and. (protcoords(m,l+del)%bl < l-2)) then
-             !protcoords(m,l)%bl = protcoords(m,l+del)%bl - del
-             !else
 
              if(protcoords(m,l+del)%bl /= buzz) then
                 protcoords(m,l)%bl = protcoords(m,l+del)%bl - del
              else
                 protcoords(m,l)%bm = 0
              end if
-             !      protcoords(m,l)%bl = protcoords(m,l+del)%bl !-del
-             !end if
+
           else if(g /=m) then
              protcoords(m,l)%bl = protcoords(m,l+del)%bl
              f = protcoords(m,l)%bl
@@ -3337,19 +2505,14 @@ rerej = rerej +1
        g = protcoords(m,l+del)%cm
        if(g /=0) then
           if(g == m) then
-             !if((del == 1) .and. (protcoords(m,l+del)%cl>l+2)) then 
-             !protcoords(m,l)%cl = protcoords(m,l+del)%cl - del
-             !else if((del == -1) .and. (protcoords(m,l+del)%cl<l-2)) then 
-             !  protcoords(m,l)%cl = protcoords(m,l+del)%cl - del
-             !else
+
              if(protcoords(m,l+del)%cl /= buzz) then
                 protcoords(m,l)%cl = protcoords(m,l+del)%cl - del
              else
                 protcoords(m,l)%cm = 0
              end if
 
-             !protcoords(m,l)%cl = protcoords(m,l+del)%cl - del
-             !end if
+ 
           else if (g/=m) then
              protcoords(m,l)%cl = protcoords(m,l+del)%cl
              f = protcoords(m,l)%cl
@@ -3361,7 +2524,7 @@ rerej = rerej +1
        g = protcoords(m,l+del)%dm
        if(g /=0) then
           if(g == m) then
-           
+
              if(protcoords(m,l+del)%dl /= buzz) then
                 protcoords(m,l)%dl = protcoords(m,l+del)%dl - del
              else
@@ -3371,7 +2534,6 @@ rerej = rerej +1
           else if(g/=m) then
              protcoords(m,l)%dl = protcoords(m,l+del)%dl
              f = protcoords(m,l)%dl
-             !write(6,*) 'f =', g,f,m,l,del
              protcoords(g,f)%cl = l
           end if
        end if
@@ -3380,7 +2542,7 @@ rerej = rerej +1
        g = protcoords(m,l+del)%em
        if(g /=0) then
           if(g == m) then
-            
+
              if(protcoords(m,l+del)%el /= buzz) then
                 protcoords(m,l)%el = protcoords(m,l+del)%el - del
              else
@@ -3399,7 +2561,7 @@ rerej = rerej +1
        g = protcoords(m,l+del)%fm
        if(g /=0) then
           if(g == m) then
-            
+
 
              if(protcoords(m,l+del)%fl /= buzz) then
                 protcoords(m,l)%fl = protcoords(m,l+del)%fl - del
@@ -3407,8 +2569,7 @@ rerej = rerej +1
                 protcoords(m,l)%fm = 0
              end if
 
-             !protcoords(m,l)%fl = protcoords(m,l+del)%fl - del
-             !  end if
+
           else if(g/=m) then
              protcoords(m,l)%fl = protcoords(m,l+del)%fl
              f = protcoords(m,l)%fl
@@ -3421,16 +2582,15 @@ rerej = rerej +1
   end subroutine reptationadjust
 
   subroutine reptationtype(m,st,deltaenergy,tempcoord,del)
+    !calculates energy change for reptation
     integer,intent(in)::m,st,del
     double precision,intent(inout)::deltaenergy
     type(prottemp),dimension(:),intent(inout)::tempcoord
     integer :: g,f,l,rangel,rangeh,maxl,del2,buzz
 
-    !         del2 = -abs(del)
 
     maxl = chlen(m)
     if(tempcoord(st)%am >0) then
-       !write(6,*) 'ddddebug',tempcoord(st)%am,st,tempcoord(st)%al
        g = tempcoord(st)%am
        if(g == m) then
           f = tempcoord(st)%al
@@ -3442,7 +2602,6 @@ rerej = rerej +1
     end if
 
     if(tempcoord(st)%bm >0) then
-       !write(6,*) 'check',tempcoord(st)%bm,tempcoord(st)%bl,st
        g = tempcoord(st)%bm
        if(g == m) then
           f = tempcoord(st)%bl
@@ -3515,11 +2674,10 @@ rerej = rerej +1
        if(protcoords(m,l)%am >0) then             
           g = protcoords(m,l)%am
           f = protcoords(m,l)%al
-if(g/=m) then
-                deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
-                deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
-             end if
-          !write(6,*) 'update',g,f
+          if(g/=m) then
+             deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
+             deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
+          end if
           if((bonddd(m,l) ==1) .and. (bonddd(g,f) == -1)) then
              if(g == m) then
                 if((f /=buzz) .and. (l<f)) then
@@ -3534,13 +2692,12 @@ if(g/=m) then
        end if
 
        if(protcoords(m,l)%bm >0) then
-          !write(6,*) 'check',tempcoord(l)%bm,tempcoord(l)%bl,st
           g = protcoords(m,l)%bm
           f = protcoords(m,l)%bl
-if(g/=m) then
-                deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
-                deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
-             end if
+          if(g/=m) then
+             deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
+             deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
+          end if
           if((bonddd(m,l) == -1) .and. (bonddd(g,f) == 1)) then
              if(g == m) then
                 if((f /=buzz) .and. (l<f)) then
@@ -3558,10 +2715,10 @@ if(g/=m) then
        if(protcoords(m,l)%cm >0) then
           g = protcoords(m,l)%cm
           f = protcoords(m,l)%cl
-if(g/=m) then
-                deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
-                deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
-             end if
+          if(g/=m) then
+             deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
+             deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
+          end if
           if((bonddd(m,l) == 2) .and. (bonddd(g,f) == -2)) then
              if(g == m) then
                 if((f /=buzz) .and. (l<f)) then
@@ -3578,19 +2735,17 @@ if(g/=m) then
        if(protcoords(m,l)%dm >0) then
           g = protcoords(m,l)%dm
           f = protcoords(m,l)%dl
-if(g/=m) then
-                deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
-                deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
-             end if
+          if(g/=m) then
+             deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
+             deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
+          end if
           if((bonddd(m,l) == -2) .and. (bonddd(g,f)==2)) then
              if(g == m) then
-                !write(6,*) 'l',l,f
                 if((f /=buzz) .and. (l<f)) then
                    deltaenergy = deltaenergy + intraenergy(protcoords(m,l+del2)%type,protcoords(g,f+del2)%type)
                    deltaenergy = deltaenergy - intraenergy(protcoords(m,l)%type,protcoords(g,f)%type)
                 end if
              else if(g/=m) then
-                !write(6,*) 'why fail',m,l,g,f
                 deltaenergy = deltaenergy + interenergy(protcoords(m,l+del2)%type,protcoords(g,f)%type)
                 deltaenergy = deltaenergy - interenergy(protcoords(m,l)%type,protcoords(g,f)%type)
              end if
@@ -3600,10 +2755,10 @@ if(g/=m) then
        if(protcoords(m,l)%em >0) then
           g = protcoords(m,l)%em
           f = protcoords(m,l)%el
-if(g/=m) then
-                deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
-                deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
-             end if
+          if(g/=m) then
+             deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
+             deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
+          end if
           if((bonddd(m,l) == 3) .and. (bonddd(g,f) == -3)) then
              if(g == m) then
                 !write(6,*) 'why fail 2',m,l,f,g,del
@@ -3621,10 +2776,10 @@ if(g/=m) then
        if(protcoords(m,l)%fm >0) then
           g = protcoords(m,l)%fm
           f = protcoords(m,l)%fl
-if(g/=m) then
-                deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
-                deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
-             end if
+          if(g/=m) then
+             deltaenergy = deltaenergy + interen(protcoords(m,l+del2)%type,protcoords(g,f)%type)
+             deltaenergy = deltaenergy - interen(protcoords(m,l)%type,protcoords(g,f)%type)
+          end if
           if((bonddd(m,l) == -3) .and. (bonddd(g,f) == 3)) then
              if(g == m) then
                 if((f /=buzz) .and. (l<f)) then
@@ -3641,6 +2796,7 @@ if(g/=m) then
   end subroutine reptationtype
 
   subroutine bonddirection(tempbonddd)
+    !select a random direction for bond vector to point in
     integer,intent(inout) :: tempbonddd
     integer :: xp,xn,yp,yn,zp,zn,chdir 
 
@@ -3648,7 +2804,7 @@ if(g/=m) then
 
 
     if(chdir == 1) tempbonddd = 1
-     if(chdir == 2) tempbonddd = -1
+    if(chdir == 2) tempbonddd = -1
     if(chdir == 3) tempbonddd = 2
     if(chdir == 4) tempbonddd = -2
     if(chdir == 5) tempbonddd = 3
@@ -3656,9 +2812,10 @@ if(g/=m) then
 
   end subroutine bonddirection
 
-  
+
 
   logical Function overlaps (pr,ch1,ch2,tempcoords)
+    !function to check the proposed position doesn't overlap with any other beads
     integer,intent(in) :: pr,ch1,ch2
     Type(prottemp),dimension(:),intent(in) :: tempcoords
     overlaps = .true.
@@ -3670,6 +2827,7 @@ if(g/=m) then
   end Function Overlaps
 
   logical Function overlapsclus (m,pr,ch1,ch2,tempcluscoord)
+    !subroutine to check the proposed cluster move doesn't result in any overlaps
     integer,intent(in) :: pr,ch1,ch2,m
     Type(prottemp),dimension(:,:),intent(in) :: tempcluscoord
     overlapsclus = .true.
@@ -3685,13 +2843,15 @@ if(g/=m) then
 
 
 
-
   subroutine energy(init)
+    !calculates the energy of the system
+    !init true if this is the first time energy is called (in this case
+    !bonds/neighbour lists are assigned to every bead
     integer :: dx,dy,dz,m,l,f,g,bdir,delx,dely,delz,maxlengthss,maxl
     double precision :: initialenergy,olderenergy,dumoldenergy
     Type(prottemp),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable:: tbo
-  !double precision,dimension(:),intent(inout)::chen
+    !double precision,dimension(:),intent(inout)::chen
     logical :: adjver
     logical,intent(in)::init
     initialenergy = 0.0d0
@@ -3730,7 +2890,7 @@ if(g/=m) then
           end do
           do l = 1,maxl,1
              do f = 1,maxl
-                if(abs(f-l)>2) then
+                if(l/=f) then
                    call adjacent(m,l,f,tempcoord,adjver,bdir)
                    if((adjver .eqv. .true.)) then
                       call bondformintra(m,l,f,tempcoord,tbo,bdir,initialenergy)
@@ -3749,10 +2909,8 @@ if(g/=m) then
                       if((adjver .eqv. .true.)) then
                          olderenergy = initialenergy
                          call bondforminter(m,g,l,f,tempcoord,tbo,bdir,initialenergy)
-                         if(initialenergy < olderenergy) then
-                            visit(m,l) = 1
-                            visit(g,f) = 1
-                            end if
+                         !if(initialenergy < olderenergy) write(6,*) 'energyyyyy',&
+                         !initialenergy,m,l,g,f
                       end if
                    end do
                 end do
@@ -3764,7 +2922,7 @@ if(g/=m) then
 
     if(init .eqv. .false.) then
        do m=1,nprotein,1
-chen(m)= 0.0d0
+          chen(m)= 0.0d0
        end do
        do m =1,nprotein,1
           maxl = chlen(m)
@@ -3780,8 +2938,8 @@ chen(m)= 0.0d0
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
           end do
-          do l = 1,maxl-3,1
-             do f = l+3,maxl
+          do l = 1,maxl-1,1
+             do f = l+1,maxl
                 call adjacent(m,l,f,tempcoord,adjver,bdir)
                 if((adjver .eqv. .true.)) then
                    dumoldenergy = initialenergy
@@ -3818,17 +2976,12 @@ chen(m)= 0.0d0
 
     if(init .eqv. .true.) totalenergy = initialenergy
 
-!write(6,*) 'ENERGYSUBROUTINE',totalenergy
+
   end subroutine energy
 
 
-
-
-
-
-
-
   subroutine adjacent(pr,ch1,ch2,tempory,adjver,bdir)
+    !subroutine to check whether two beads are on adjacent lattice sites
     integer,intent(in):: pr,ch1,ch2
     integer,intent(inout)::bdir
     integer::dx,dy,dz,delx,dely,delz,signs
@@ -3889,6 +3042,7 @@ chen(m)= 0.0d0
 
 
   subroutine comfind(m,track)
+    !find the centre of mass of each chain
     integer :: dcomx,dcomy,dcomz,maxl,comx,comy,comz
     integer :: l,a
     logical,intent(in) :: track
@@ -3901,71 +3055,71 @@ chen(m)= 0.0d0
        com(2,m)%z = com(1,m)%z
     end if
 
-       comx = 0
-       comy = 0
-       comz = 0
-        maxl = chlen(m)
-!linkerlength = 7
+    comx = 0
+    comy = 0
+    comz = 0
+    maxl = chlen(m)
+    !linkerlength = 7
 
-        !do a =1,maxl
-           !write(6,*) 'bead',a,protcoords(m,a)%x,protcoords(m,a)%y,protcoords(m,a)%z
-        !end do
-        do l = 2,maxl,1
-           dcomx = protcoords(m,l)%x-protcoords(m,l-1)%x
-           if (dcomx >protcoords(m,1)%linker) dcomx = dcomx-gridsize
-           if (dcomx <(-protcoords(m,1)%linker)) dcomx = gridsize+dcomx
-           comx = comx + ((maxl+1-l)*dcomx)
-           dcomy = protcoords(m,l)%y-protcoords(m,l-1)%y
-           !if(abs(dcomy) > 7) write(6,*) 'over pbc',gridsize,linkerlength,dcomy
-           if (dcomy >protcoords(m,1)%linker) dcomy = dcomy-gridsize
-           if (dcomy <(-protcoords(m,1)%linker)) dcomy = gridsize+dcomy
-           !if(abs(dcomy) > 7) write(6,*) 'faillllll',gridsize,linkerlength,dcomy
-           comy = comy + ((maxl+1-l)*dcomy)
-           dcomz = protcoords(m,l)%z-protcoords(m,l-1)%z
-           if (dcomz >protcoords(m,1)%linker) dcomz = dcomz-gridsize
-           if (dcomz <(-protcoords(m,1)%linker)) dcomz = gridsize+dcomz
-           comz = comz + ((maxl+1-l)*dcomz)
-        end do
-        !write(6,*) 'deltas',comx,comy,comz
-        com(1,m)%x = modulo(protcoords(m,1)%x +(real(comx)/(maxl)) -1,real(gridsize))+1
-        com(1,m)%y = modulo(protcoords(m,1)%y +(real(comy)/(maxl)) -1,real(gridsize))+1
-        com(1,m)%z = modulo(protcoords(m,1)%z +(real(comz)/(maxl)) -1,real(gridsize))+1
-        !end do
-        !if((com(1,1)%y>1500) .and.(com(1,1)%y<2500))write(6,*) 'com',time,com(1,1)%y,protcoords(1,1)%y,comy
-        !write(6,*) 'commmm 2'
-        if(time > 0 .and. (track .eqv. .true.)) then
-           call tracking(m)
-        end if
-        
-        if(track .eqv. .true.) call rms(m)
-    
+    !do a =1,maxl
+    !write(6,*) 'bead',a,protcoords(m,a)%x,protcoords(m,a)%y,protcoords(m,a)%z
+    !end do
+    do l = 2,maxl,1
+       dcomx = protcoords(m,l)%x-protcoords(m,l-1)%x
+       if (dcomx >protcoords(m,1)%linker) dcomx = dcomx-gridsize
+       if (dcomx <(-protcoords(m,1)%linker)) dcomx = gridsize+dcomx
+       comx = comx + ((maxl+1-l)*dcomx)
+       dcomy = protcoords(m,l)%y-protcoords(m,l-1)%y
+
+       if (dcomy >protcoords(m,1)%linker) dcomy = dcomy-gridsize
+       if (dcomy <(-protcoords(m,1)%linker)) dcomy = gridsize+dcomy
+
+       comy = comy + ((maxl+1-l)*dcomy)
+       dcomz = protcoords(m,l)%z-protcoords(m,l-1)%z
+       if (dcomz >protcoords(m,1)%linker) dcomz = dcomz-gridsize
+       if (dcomz <(-protcoords(m,1)%linker)) dcomz = gridsize+dcomz
+       comz = comz + ((maxl+1-l)*dcomz)
+    end do
+
+    com(1,m)%x = modulo(protcoords(m,1)%x +(real(comx)/(maxl)) -1,real(gridsize))+1
+    com(1,m)%y = modulo(protcoords(m,1)%y +(real(comy)/(maxl)) -1,real(gridsize))+1
+    com(1,m)%z = modulo(protcoords(m,1)%z +(real(comz)/(maxl)) -1,real(gridsize))+1
+
+    if(time > 0 .and. (track .eqv. .true.)) then
+       call tracking(m)
+    end if
+
+    ! if(track .eqv. .true.) call rms(m)
+
   end subroutine comfind
 
   subroutine tracking(m)
+    !find total displacement in x,y and z directions
     integer,intent(in)::m
     double precision :: dcx,dcy,dcz
 
-          dcx = 0.0d0
-          dcy = 0.0d0
-          dcz = 0.0d0
-         dcx = com(1,m)%x-com(2,m)%x
-          if (dcx > gridsize/2) dcx = dcx-gridsize
-          if (dcx < -gridsize/2) dcx = gridsize + dcx
-          trackx = trackx + dcx
-          dcy = com(1,m)%y-com(2,m)%y
-          if (dcy > gridsize/2) dcy = dcy - gridsize
-          if (dcy < -gridsize/2) dcy = dcy +gridsize
-          tracky = tracky + dcy
-          dcz = com(1,m)%z-com(2,m)%z
-          if (dcz > gridsize/2) dcz = dcz - gridsize
-          if (dcz < -gridsize/2) dcz = dcz + gridsize
-          trackz = trackz + dcz
-    
+    dcx = 0.0d0
+    dcy = 0.0d0
+    dcz = 0.0d0
+    dcx = com(1,m)%x-com(2,m)%x
+    if (dcx > gridsize/2) dcx = dcx-gridsize
+    if (dcx < -gridsize/2) dcx = gridsize + dcx
+    trackx = trackx + dcx
+    dcy = com(1,m)%y-com(2,m)%y
+    if (dcy > gridsize/2) dcy = dcy - gridsize
+    if (dcy < -gridsize/2) dcy = dcy +gridsize
+    tracky = tracky + dcy
+    dcz = com(1,m)%z-com(2,m)%z
+    if (dcz > gridsize/2) dcz = dcz - gridsize
+    if (dcz < -gridsize/2) dcz = dcz + gridsize
+    trackz = trackz + dcz
+
   end subroutine tracking
 
 
-  
+
   subroutine rms(m)
+    !incorrect rms code - not called
     double precision :: msdsum,msd,msdx,msdy,msdz
     integer,intent(in)::m
 
@@ -3978,30 +3132,30 @@ chen(m)= 0.0d0
     msdz = (min(abs(com(1,m)%z - com(2,m)%z), &
          (gridsize - abs(com(1,m)%z -com(2,m)%z))))**2
 
-   
+
     totrmsbrute = totrmsbrute + msdx + msdy + msdz
 
   end subroutine rms
 
-subroutine radiusofgyration(clusorbulk)
-        integer,intent(in)::clusorbulk
+  subroutine radiusofgyration
+    !calculates the radius of gyration of the largest cluster
     integer::m,l,maxl,nobeads
     double precision :: rog,totrog!,avex,avey,avez
-totrog = 0.0d0
-nobeads = 0
-!avex = 0.0d0
-!avey = 0.0d0
-!avez = 0.0d0
-    do m = nprotein-nclients,nprotein,1
-        maxl = chlen(m)
-!do l = 1,maxl,1
-!avex = avex + protcoords(m,l)%x
-!avey = avey + protcoords(m,l)%y
-!avez = avez + protcoords(m,l)%z
-!end do
-!avex = avex/maxl
-!avey = avey/maxl
-!avez = avez/maxl
+    totrog = 0.0d0
+    nobeads = 0
+    !avex = 0.0d0
+    !avey = 0.0d0
+    !avez = 0.0d0
+    do m = 1,nprotein,1
+       maxl = chlen(m)
+       !do l = 1,maxl,1
+       !avex = avex + protcoords(m,l)%x
+       !avey = avey + protcoords(m,l)%y
+       !avez = avez + protcoords(m,l)%z
+       !end do
+       !avex = avex/maxl
+       !avey = avey/maxl
+       !avez = avez/maxl
 
        do l = 1, maxl,1
           rog = (min(modulo(protcoords(m,l)%x-com(1,m)%x,gridsize*1.0),(gridsize - &
@@ -4015,26 +3169,16 @@ nobeads = 0
        nobeads = nobeads+maxl
     end do
 
-if(clusorbulk == 1) then
-averageROG = averageROG + totrog
-noROGS = noROGS+1
-else if(clusorbulk == 2) then
-averageROGbulk = averageROGbulk + totrog
-noROGSbulk = noROGSbulk+1
-else if(clusorbulk == 3) then
-averageROGunb = averageROGunb + totrog
-noROGSunb = noROGSunb+1
-end if
-
     runningaveROG = runningaveROG + totrog
     polymerrog = polymerrog + (totrog/nprotein)
-    !if(noinfo .eqv. .false.) write(97,*) time-equilib, &
-    !     totrog/(nobeads),SQRT(totrog/(nobeads))
+    if(noinfo .eqv. .false.) write(97,*) time-equilib, &
+         totrog/(nobeads),SQRT(totrog/(nobeads))
 
   end subroutine radiusofgyration
-  
-  
+
+
   subroutine length
+    !finds end to end separation of chains (only called if scaling info required) scalinginfo = TRUE
     integer :: ddx,ddy,ddz,dxsum,dysum,dzsum,m,l,maxl
     double precision :: normchainl
     t = time
@@ -4042,24 +3186,25 @@ end if
     normchainl = 0.0d0
 
     do m = 1,nprotein,1
-       
-        maxl = chlen(m)
-        dxsum = min(abs(protcoords(m,maxl)%x - protcoords(m,1)%x),gridsize-abs(protcoords(m,maxl)%x - protcoords(m,1)%x))
-        dysum = min(abs(protcoords(m,maxl)%y - protcoords(m,1)%y),gridsize-abs(protcoords(m,maxl)%y - protcoords(m,1)%y))
-        dzsum = min(abs(protcoords(m,maxl)%z - protcoords(m,1)%z),gridsize-abs(protcoords(m,maxl)%z - protcoords(m,1)%z))
-        
+
+       maxl = chlen(m)
+       dxsum = min(abs(protcoords(m,maxl)%x - protcoords(m,1)%x),gridsize-abs(protcoords(m,maxl)%x - protcoords(m,1)%x))
+       dysum = min(abs(protcoords(m,maxl)%y - protcoords(m,1)%y),gridsize-abs(protcoords(m,maxl)%y - protcoords(m,1)%y))
+       dzsum = min(abs(protcoords(m,maxl)%z - protcoords(m,1)%z),gridsize-abs(protcoords(m,maxl)%z - protcoords(m,1)%z))
+
        chainlength = ((dxsum**2) + (dysum**2) + (dzsum**2))
        totchainlength = totchainlength + chainlength
     end do
     !totchainlength = sum(chainlength)
     runningaveEtE = runningaveEtE + totchainlength  !sort this out
     normchainl = totchainlength/nprotein
-polymerl = polymerl + normchainl
+    polymerl = polymerl + normchainl
     !actualchainlength = actualchainlength + avechainlength
     write(91,*) t,normchainl
-end subroutine length
+  end subroutine length
 
   subroutine dataout
+    !outputs system configuration
     integer::m,l,maxl,f,g,maxback,acount
     type(rprot),dimension(:,:),allocatable :: bondposit
     integer :: choice
@@ -4112,6 +3257,7 @@ end subroutine length
   end subroutine dataout
 
   subroutine dataoutrestart
+    !outputs final system configuration so restart can be carried out
     integer::m,l,maxl,f,g,maxback,acount
     type(rprot),dimension(:,:),allocatable :: bondposit
 
@@ -4130,12 +3276,796 @@ end subroutine length
   end subroutine dataoutrestart
 
 
+  subroutine clusterenergy(tempcluscoord,clusen,m,ctbo,clsize,cllist,cl,energyofcluster)
+    !calculates whether any bonds have been formed, and if they have rejects the move
+    integer,dimension(:),intent(in) ::cllist
+    integer,dimension(:,:),intent(inout)::ctbo
+    logical,dimension(:),intent(in)::cl
+    integer,intent(in) :: clsize,m
+    double precision,intent(inout)::clusen,energyofcluster
+    type(prottemp),dimension(:,:),intent(inout) :: tempcluscoord
+    type(prottemp),dimension(:),allocatable :: tempcoord
+    integer:: a,l,g,f,bdir,maxlengthss,maxl,ra
+    logical :: clusmove,adjver
+    allocate(tempcoord(maxlength))
+    !error in this!!!
+
+    !write(6,*) 'realsanity',m,l,tempcluscoord(472,4)%x,tempcluscoord(472,4)%y,tempcluscoord(472,4)%z
+    clusen = 0.0
+    !write(6,*) 'clsize',clsize
+    do ra = 1,clsize
+       a = cllist(ra)
+       !write(6,*) 'a',a
+       maxl = chlen(a)
+       do g = 1,nprotein
+          if(cl(g) .eqv. .true.) goto 23
+          maxlengthss = chlen(g)
+          clusmove = .true.
+          do l = 1,maxl,1
+             !tempcoord(l)%x = tempcluscoord(a,l)%x
+             !tempcoord(l)%y = tempcluscoord(a,l)%y
+             !tempcoord(l)%z = tempcluscoord(a,l)%z
+             !write(6,*) 'real life',m,l,tempcluscoord(472,4)%x,tempcluscoord(472,4)%y,tempcluscoord(472,4)%z
+             do f = 1,maxlengthss,1
+                call adjacent(g,l,f,tempcluscoord(a,:),adjver,bdir)
+                if(adjver.eqv. .true.) then
+                   call clusbondform(a,g,l,f,tempcluscoord,bdir)
+                   !if((isbond .eqv. .true.) .and. (interen(protcoords(a,l)%type,protcoords(g,f)%type) < 0.0)) then
+                      energyofcluster = energyofcluster + interen(protcoords(a,l)%type,protcoords(g,f)%type)
+                      !clusen = 100
+                      !return
+                   !end if
+                   if((bdir == (-1*ctbo(a,l))) .and. (bdir == bonddd(g,f)) .and. &
+                        (interenergy(protcoords(a,l)%type,protcoords(g,f)%type)  < 0.0)) then
+                      !energyofcluster = energyofcluster + interenergy(protcoords(a,l)%species,protcoords(g,f)%species)
+                      clusen = 100
+                      return
+                   end if
+                end if
+             end do
+          end do
+23        continue
+       end do
+    end do
+
+       ! totalenergy = totalenergy + energyofcluster
+    !if(time> 1490 .and. (time < 1510)) write(6,*) 'clusterenergy =',energyofcluster
+    !write(6,*) 'aaaaaa'
+  end subroutine clusterenergy
+
+  subroutine clusbondform(m,g,l,f,tempcoord,bdir)
+!checks the nearest neighbours of the beads moved in cluster move to check if bonds ahve formed
+    integer,intent(in)::m,g,l,f,bdir
+    type(prottemp),dimension(:,:),intent(inout) :: tempcoord
+    if(bdir == -1) then
+       tempcoord(m,l)%am = g
+       tempcoord(m,l)%al = f
+    else if(bdir == 1) then
+       tempcoord(m,l)%bm = g
+       tempcoord(m,l)%bl = f    
+    else if(bdir == -2) then
+       tempcoord(m,l)%cm = g
+       tempcoord(m,l)%cl = f
+    else if(bdir == 2) then
+       tempcoord(m,l)%dm = g
+       tempcoord(m,l)%dl = f
+    else if(bdir == -3) then
+       tempcoord(m,l)%em = g
+       tempcoord(m,l)%el = f
+    else if(bdir == 3) then
+       tempcoord(m,l)%fm = g
+       tempcoord(m,l)%fl = f
+    end if
+
+  end subroutine clusbondform
+
+
+
+  subroutine clusrbond(m,ctbo,axis,rotor,maxl)
+    !rotate the bonds of the beads in a cluster during cluster rotation
+    integer,intent(in):: m,axis,rotor,maxl
+    integer,dimension(:,:),intent(inout)::ctbo
+    logical :: bm
+    integer :: sign,s
+
+
+    do s = 1,maxl
+       bm = .true.
+       if(abs(bonddd(m,s)) == axis) then
+          bm = .true.
+          ctbo(m,s) = bonddd(m,s)
+          goto 87
+       end if
+
+
+       if(rotor == 0) then
+          bm = .true.
+          ctbo(m,s) = -1*bonddd(m,s)
+          !if(abs(bonddd(m,s)) /= (modulo(axis,3) + 1)) ctbo(m,s) = 1*bonddd(m,s)
+          goto 87
+       end if
+       !write(6,*) bonddd(m,s),m,s
+       sign = bonddd(m,s)/abs(bonddd(m,s))
+       if(axis == 1) then
+          if(rotor == 1) then
+             if(abs(bonddd(m,s)) == 2) ctbo(m,s) = sign*(abs(bonddd(m,s)) + 1)
+             if(abs(bonddd(m,s)) == 3) ctbo(m,s) = -1*sign*(abs(bonddd(m,s)) - 1)
+             goto 87
+          else if(rotor == -1) then
+             if(abs(bonddd(m,s)) == 2) ctbo(m,s) = -1*sign*(abs(bonddd(m,s)) + 1)
+             if(abs(bonddd(m,s)) == 3) ctbo(m,s) = sign*(abs(bonddd(m,s)) - 1)
+             goto 87
+          end if
+       else if(axis ==2 ) then
+          if(rotor == 1) then
+             if(abs(bonddd(m,s)) == 1) ctbo(m,s) = -1*sign*(abs(bonddd(m,s)) + 2)
+             if(abs(bonddd(m,s)) == 3) ctbo(m,s) = sign*(abs(bonddd(m,s)) - 2)        
+             goto 87
+          else if(rotor == -1) then
+             if(abs(bonddd(m,s)) == 1) ctbo(m,s) = sign*(abs(bonddd(m,s)) + 2)
+             if(abs(bonddd(m,s)) == 3) ctbo(m,s) = -1*sign*(abs(bonddd(m,s)) - 2)         
+             goto 87
+          end if
+
+       else if(axis ==3) then
+          if(rotor == 1) then
+             if(abs(bonddd(m,s)) == 1) ctbo(m,s) = sign*(abs(bonddd(m,s)) + 1)
+             if(abs(bonddd(m,s)) == 2) ctbo(m,s) = -1*sign*(abs(bonddd(m,s)) - 1)        
+             goto 87
+          else if(rotor == -1) then
+             if(abs(bonddd(m,s)) == 1) ctbo(m,s) = -1*sign*(abs(bonddd(m,s)) + 1)
+             if(abs(bonddd(m,s)) == 2) ctbo(m,s) = sign*(abs(bonddd(m,s)) - 1)         
+          end if
+
+       end if
+
+
+87     if(bm .eqv. .true.) continue
+       if(ctbo(m,s) == 0) write(6,*) 'fail cluster bond',m,s
+    end do
+  end subroutine clusrbond
+
+  subroutine clustertranslation(m,clsize,cb,cllist,cl)
+    !translation move on a cluster which contains the randomly chosen bead
+    integer,intent(inout)::m
+    integer,intent(inout):: clsize
+    logical,dimension(:),intent(in)::cl
+    type(centremass),dimension(:),allocatable:: tcom
+    integer,dimension(:),intent(inout) ::cllist
+    integer,dimension(:,:),intent(inout) ::cb
+    integer :: dx,dy,dz,vv,rvv,a,moved
+    type(prottemp),dimension(:,:),allocatable :: tempcluscoord
+    integer,dimension(:,:),allocatable::ctbo
+    double precision :: clusen,direction,energyofcluster
+    logical :: moveallow
+    allocate(tempcluscoord(nprotein,maxlength))
+    allocate(ctbo(nprotein,maxlength))
+    allocate(tcom(nprotein))
+    !return
+    !write(6,*) 'translate', totalenergy
+    direction = ran2(seed)
+    cltatt = cltatt + 1
+    moveallow = .true.
+    if(direction <= 1.0/6) then
+       dx = steplength
+       dy = 0
+       dz = 0
+       moved =1
+    else if((direction > 1.0/6) .and. (direction <= 1.0/3)) then
+       dx = -(steplength)
+       dy = 0
+       dz = 0
+       moved = 2
+    else if((direction > 1.0/3) .and. (direction <= 1.0/2)) then
+       dx = 0
+       dy = steplength
+       dz = 0
+       moved = 3
+    else if((direction > 1.0/2) .and. (direction <= 2.0/3)) then
+       dx = 0
+       dy = -(steplength)
+       dz = 0
+       moved = 4
+    else  if((direction > 2.0/3) .and. (direction <= 5.0/6)) then
+       dx = 0
+       dy = 0
+       dz = steplength
+       moved = 5
+    else if((direction > 5.0/6) .and. (direction <= 1.0/1)) then
+       dx = 0
+       dy = 0
+       dz = -(steplength)
+       moved = 6
+    end if
+
+
+energyofcluster= 0.0d0
+    !write(6,*) 'info',dx,dy,dz
+    call clusremove(cllist,clsize,tempcluscoord,cl,energyofcluster)
+    !write(6,*) 'corresponding info',tempcluscoord(464,6)%x,tempcluscoord(464,6)%y,tempcluscoord(464,6)%z
+
+    if(steplength ==1) then
+       if(clsize<(nprotein/4)) then
+          do rvv = 1,clsize
+             vv = cllist(rvv)
+
+             call clustermove1(vv,dx,dy,dz,tempcluscoord,moveallow,ctbo,cllist,cl,moved)
+
+             if(moveallow .eqv. .false.) return
+             tcom(vv)%x = modulo(com(1,vv)%x + dx -1,real(gridsize))+1
+             tcom(vv)%y = modulo(com(1,vv)%y + dy -1,real(gridsize))+1
+             tcom(vv)%z = modulo(com(1,vv)%z + dz -1,real(gridsize))+1
+          end do
+
+       else if(clsize>=(nprotein/4)) then
+          do rvv = 1,clsize
+             vv = cllist(rvv)
+             call clustermove2(vv,dx,dy,dz,tempcluscoord,moveallow,ctbo,cllist,cl)
+             if(moveallow .eqv. .false.) return
+             tcom(vv)%x = modulo(com(1,vv)%x + dx -1,real(gridsize))+1
+             tcom(vv)%y = modulo(com(1,vv)%y + dy -1,real(gridsize))+1
+             tcom(vv)%z = modulo(com(1,vv)%z + dz -1,real(gridsize))+1
+          end do
+       end if
+    else if(steplength /= 1) then
+       do rvv = 1,clsize
+          vv = cllist(rvv)
+          call clustermove2(vv,dx,dy,dz,tempcluscoord,moveallow,ctbo,cllist,cl)
+          if(moveallow .eqv. .false.) return
+          tcom(vv)%x = modulo(com(1,vv)%x + dx -1,real(gridsize))+1
+          tcom(vv)%y = modulo(com(1,vv)%y + dy -1,real(gridsize))+1
+          tcom(vv)%z = modulo(com(1,vv)%z + dz -1,real(gridsize))+1
+       end do
+    end if
+
+
+    clusen = 0.0
+
+
+    call clusterenergy(tempcluscoord,clusen,m,ctbo,clsize,cllist,cl,energyofcluster)
+
+
+    if(int(clusen) == 0) then
+       call updatecluspos(tempcluscoord,ctbo,tcom,cllist,clsize)
+       call updateclusbonds(clsize,cllist,cl,tempcluscoord)
+       !call energy(.true.)
+        totalenergy = totalenergy+energyofcluster       
+        cltacc = cltacc + 1
+    end if
+
+
+  end subroutine clustertranslation
+
+  subroutine clusremove(cllist,clsize,tempcluscoord,cl,energyofcluster)
+    !removes neighbours that are not in the same cluster from the neighbour list
+    !prior to cluster translation
+    Type(prottemp),dimension(:,:),intent(inout) :: tempcluscoord
+    logical,dimension(:),intent(in)::cl
+    integer,dimension(:),intent(inout) ::cllist
+    integer,intent(in)::clsize
+double precision,intent(inout)::energyofcluster
+    integer::rvv,m,l,maxl
+    integer :: g,f
+
+    do rvv = 1,clsize
+       m = cllist(rvv)
+       maxl = chlen(m)
+       do l = 1,maxl
+          if((protcoords(m,l)%am ==0)) then
+             tempcluscoord(m,l)%am = 0
+             tempcluscoord(m,l)%al = 0
+          else
+             if(cl(protcoords(m,l)%am) .eqv. .false.) then
+                tempcluscoord(m,l)%am = -1
+                g = protcoords(m,l)%am
+                f = protcoords(m,l)%al
+                energyofcluster=energyofcluster-interen(protcoords(m,l)%type,protcoords(g,f)%type)
+                !if((bonddd(m,l) ==1) .and. (bonddd(protcoords(m,l)%am,protcoords(m,l)%al) == -1)&
+                !    .and. (interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0)) then
+                !  write(6,*) 'bond break!!!',m,l,protcoords(m,l)%am,cllist(1:clsize),'a'
+                !  end if
+             else if(cl(protcoords(m,l)%am) .eqv. .true.) then
+                tempcluscoord(m,l)%am = protcoords(m,l)%am
+                tempcluscoord(m,l)%al = protcoords(m,l)%al
+             end if
+          end if
+
+          if((protcoords(m,l)%bm ==0)) then
+             tempcluscoord(m,l)%bm = 0
+             tempcluscoord(m,l)%bl = 0
+          else
+             if(cl(protcoords(m,l)%bm) .eqv. .false.) then
+                tempcluscoord(m,l)%bm = -1
+                g = protcoords(m,l)%bm
+                f = protcoords(m,l)%bl
+                energyofcluster=energyofcluster-interen(protcoords(m,l)%type,protcoords(g,f)%type)
+
+                !if((bonddd(m,l) ==-1) .and. (bonddd(protcoords(m,l)%bm,protcoords(m,l)%bl) == 1)&
+                !    .and. (interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0)) then
+                !  write(6,*) 'bond break!!!',m,l,protcoords(m,l)%bm,cllist(1:clsize),'b'
+                !  end if
+             else if(cl(protcoords(m,l)%bm) .eqv. .true.) then
+                tempcluscoord(m,l)%bm = protcoords(m,l)%bm
+                tempcluscoord(m,l)%bl = protcoords(m,l)%bl
+             end if
+          end if
+
+          if((protcoords(m,l)%cm ==0)) then
+             tempcluscoord(m,l)%cm = 0
+             tempcluscoord(m,l)%cl = 0
+          else if((protcoords(m,l)%cm /=0)) then
+             if(cl(protcoords(m,l)%cm) .eqv. .false.) then
+                tempcluscoord(m,l)%cm = -1
+                g = protcoords(m,l)%cm
+                f = protcoords(m,l)%cl
+                energyofcluster=energyofcluster-interen(protcoords(m,l)%type,protcoords(g,f)%type)
+
+                !if((bonddd(m,l) ==2) .and. (bonddd(protcoords(m,l)%cm,protcoords(m,l)%cl) == -2)&
+                !    .and. (interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0)) then
+                !  write(6,*) 'bond break!!!',m,l,protcoords(m,l)%cm,cllist(1:clsize),'c'
+                !  end if
+             else if(cl(protcoords(m,l)%cm) .eqv. .true.) then
+                tempcluscoord(m,l)%cm = protcoords(m,l)%cm
+                tempcluscoord(m,l)%cl = protcoords(m,l)%cl
+             end if
+          end if
+
+          if((protcoords(m,l)%dm ==0)) then
+             tempcluscoord(m,l)%dm = 0
+             tempcluscoord(m,l)%dl = 0
+          else if((protcoords(m,l)%dm /=0)) then
+             if(cl(protcoords(m,l)%dm) .eqv. .false.) then
+                tempcluscoord(m,l)%dm = -1
+                g = protcoords(m,l)%dm
+                f = protcoords(m,l)%dl
+                energyofcluster=energyofcluster-interen(protcoords(m,l)%type,protcoords(g,f)%type)
+
+
+                !if((bonddd(m,l) ==-2) .and. (bonddd(protcoords(m,l)%dm,protcoords(m,l)%dl) == 2)&
+                !    .and. (interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0)) then
+                !   write(6,*) 'bond break!!!',m,l,protcoords(m,l)%dm,cllist(1:clsize),'d'
+                !end if
+             else if(cl(protcoords(m,l)%dm) .eqv. .true.) then
+                tempcluscoord(m,l)%dm = protcoords(m,l)%dm
+                tempcluscoord(m,l)%dl = protcoords(m,l)%dl
+             end if
+          end if
+
+          if((protcoords(m,l)%em ==0)) then
+             tempcluscoord(m,l)%em = 0
+             tempcluscoord(m,l)%el = 0
+          else
+             if(cl(protcoords(m,l)%em) .eqv. .false.) then
+                tempcluscoord(m,l)%em = -1
+                g = protcoords(m,l)%em
+                f = protcoords(m,l)%el
+                energyofcluster=energyofcluster-interen(protcoords(m,l)%type,protcoords(g,f)%type)
+
+                !if((bonddd(m,l) ==3) .and. (bonddd(protcoords(m,l)%em,protcoords(m,l)%el) == -3)&
+                !    .and. (interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0)) then
+                ! write(6,*) 'bond break!!!',m,l,protcoords(m,l)%em,cllist(1:clsize),'e'
+                ! end if
+             else if(cl(protcoords(m,l)%em) .eqv. .true.) then
+                tempcluscoord(m,l)%em = protcoords(m,l)%em
+                tempcluscoord(m,l)%el = protcoords(m,l)%el
+             end if
+          end if
+
+          if((protcoords(m,l)%fm ==0)) then
+             tempcluscoord(m,l)%fm = 0
+             tempcluscoord(m,l)%fl = 0
+          else
+             if(cl(protcoords(m,l)%fm) .eqv. .false.) then
+                tempcluscoord(m,l)%fm = -1
+                g = protcoords(m,l)%fm
+                f = protcoords(m,l)%fl
+                energyofcluster=energyofcluster-interen(protcoords(m,l)%type,protcoords(g,f)%type)
+
+                !if((bonddd(m,l) ==-3) .and. (bonddd(protcoords(m,l)%fm,protcoords(m,l)%fl) == 3)&
+                !   .and. (interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0)) then
+                ! write(6,*) 'bond break!!!',m,l,protcoords(m,l)%fm,cllist(1:clsize),'f'
+                !end if
+             else if(cl(protcoords(m,l)%fm) .eqv. .true.) then
+                tempcluscoord(m,l)%fm = protcoords(m,l)%fm
+                tempcluscoord(m,l)%fl = protcoords(m,l)%fl
+             end if
+          end if
+
+
+       end do
+    end do
+
+
+
+  end subroutine clusremove
+
+
+  subroutine updateclusbonds(clsize,cllist,cl,tempcluscoord)
+    !Subroutine to update neighbour list after a cluster move
+    integer :: m,mt,maxl,l,g,f,gt,ft
+    integer,intent(inout)::clsize
+    integer,dimension(:),intent(inout) ::cllist
+    logical,dimension(:),intent(in)::cl
+    type(prottemp),dimension(:,:),intent(in):: tempcluscoord
+
+
+    do mt = 1,clsize
+       m = cllist(mt)
+       maxl = chlen(m)
+       do l = 1,maxl
+
+          if(tempcluscoord(m,l)%am /= -1) then
+             if(tempcluscoord(m,l)%am /= 0) then
+                if(cl(tempcluscoord(m,l)%am) .eqv. .false.) then
+                   g = tempcluscoord(m,l)%am
+                   f = tempcluscoord(m,l)%al
+                   !write(6,*) 'g and f',g,f
+                   if(protcoords(m,l)%am /= 0) then
+                      if((g/=protcoords(m,l)%am) .or. (f /=protcoords(m,l)%al)) then
+                         gt = protcoords(m,l)%am
+                         ft = protcoords(m,l)%al
+                         if((protcoords(gt,ft)%bm == m) .and. (protcoords(gt,ft)%bl == l)) then
+                            protcoords(gt,ft)%bm = 0
+                            protcoords(gt,ft)%bl = 0
+                         end if
+                      end if
+                   end if
+                   protcoords(g,f)%bm = m
+                   protcoords(g,f)%bl = l
+                   !write(6,*) 'confusion',g,f,protcoords(g,f)%bm
+                end if
+             end if
+             protcoords(m,l)%am = tempcluscoord(m,l)%am
+             protcoords(m,l)%al = tempcluscoord(m,l)%al
+          else if(tempcluscoord(m,l)%am == -1) then
+             g = protcoords(m,l)%am
+             f = protcoords(m,l)%al
+             if((protcoords(g,f)%bm == m) .and. (protcoords(g,f)%bl == l)) then
+                protcoords(g,f)%bm = 0
+                protcoords(g,f)%bl = 0
+             end if
+             protcoords(m,l)%am = 0
+             protcoords(m,l)%al = 0
+          end if
+          !write(6,*) 'why??', protcoords(14,5)%am,tempcluscoord(14,5)%am
+          !write(6,*) 'why?? two', protcoords(50,3)%bm
+          !write(6,*) 'help', protcoords(182,4)
+
+
+
+          if(tempcluscoord(m,l)%bm /= -1) then
+             if(tempcluscoord(m,l)%bm /= 0) then
+                if(cl(tempcluscoord(m,l)%bm) .eqv. .false.) then
+                   g = tempcluscoord(m,l)%bm
+                   f = tempcluscoord(m,l)%bl
+                   if(protcoords(m,l)%bm /= 0) then
+                      if((g/=protcoords(m,l)%bm) .or. (f /=protcoords(m,l)%bl)) then
+                         gt = protcoords(m,l)%bm
+                         ft = protcoords(m,l)%bl
+                         if((protcoords(gt,ft)%am == m) .and. (protcoords(gt,ft)%al == l)) then
+                            protcoords(gt,ft)%am = 0
+                            protcoords(gt,ft)%al = 0
+                         end if
+                      end if
+                   end if
+                   protcoords(g,f)%am = m
+                   protcoords(g,f)%al = l
+                end if
+             end if
+             protcoords(m,l)%bm = tempcluscoord(m,l)%bm
+             protcoords(m,l)%bl = tempcluscoord(m,l)%bl
+          else if(tempcluscoord(m,l)%bm == -1) then
+             g = protcoords(m,l)%bm
+             f = protcoords(m,l)%bl
+             if((protcoords(g,f)%am == m) .and. (protcoords(g,f)%al == l)) then
+                protcoords(g,f)%am = 0
+                protcoords(g,f)%al = 0
+             end if
+             protcoords(m,l)%bm = 0
+             protcoords(m,l)%bl = 0
+          end if
+
+
+          if(tempcluscoord(m,l)%cm /= -1) then
+             if(tempcluscoord(m,l)%cm /= 0) then
+                if(cl(tempcluscoord(m,l)%cm) .eqv. .false.) then
+                   g = tempcluscoord(m,l)%cm
+                   f = tempcluscoord(m,l)%cl
+                   if(protcoords(m,l)%cm /= 0) then
+                      if((g/=protcoords(m,l)%cm) .or. (f /=protcoords(m,l)%cl)) then
+                         gt = protcoords(m,l)%cm
+                         ft = protcoords(m,l)%cl
+                         if((protcoords(gt,ft)%dm == m) .and. (protcoords(gt,ft)%dl == l)) then
+                            protcoords(gt,ft)%dm = 0
+                            protcoords(gt,ft)%dl = 0
+                         end if
+                      end if
+                   end if
+                   protcoords(g,f)%dm = m
+                   protcoords(g,f)%dl = l
+                end if
+             end if
+             protcoords(m,l)%cm = tempcluscoord(m,l)%cm
+             protcoords(m,l)%cl = tempcluscoord(m,l)%cl
+          else if(tempcluscoord(m,l)%cm == -1) then
+             g = protcoords(m,l)%cm
+             f = protcoords(m,l)%cl
+             if((protcoords(g,f)%dm == m) .and. (protcoords(g,f)%dl == l)) then
+                protcoords(g,f)%dm = 0
+                protcoords(g,f)%dl = 0
+             end if
+             protcoords(m,l)%cm = 0
+             protcoords(m,l)%cl = 0
+          end if
+
+
+          if(tempcluscoord(m,l)%dm /= -1) then
+             if(tempcluscoord(m,l)%dm /= 0) then
+                if(cl(tempcluscoord(m,l)%dm) .eqv. .false.) then
+                   g = tempcluscoord(m,l)%dm
+                   f = tempcluscoord(m,l)%dl
+                   if(protcoords(m,l)%dm /= 0) then
+                      if((g/=protcoords(m,l)%dm) .or. (f /=protcoords(m,l)%dl)) then
+                         gt = protcoords(m,l)%dm
+                         ft = protcoords(m,l)%dl
+                         if((protcoords(gt,ft)%cm == m) .and. (protcoords(gt,ft)%cl == l)) then
+                            protcoords(gt,ft)%cm = 0
+                            protcoords(gt,ft)%cl = 0
+                         end if
+                      end if
+                   end if
+                   protcoords(g,f)%cm = m
+                   protcoords(g,f)%cl = l
+                end if
+             end if
+             protcoords(m,l)%dm = tempcluscoord(m,l)%dm
+             protcoords(m,l)%dl = tempcluscoord(m,l)%dl
+          else if(tempcluscoord(m,l)%dm == -1) then
+             g = protcoords(m,l)%dm
+             f = protcoords(m,l)%dl
+             if((protcoords(g,f)%cm == m) .and. (protcoords(g,f)%cl == l)) then
+                protcoords(g,f)%cm = 0
+                protcoords(g,f)%cl = 0
+             end if
+             protcoords(m,l)%dm = 0
+             protcoords(m,l)%dl = 0
+          end if
+
+          if(tempcluscoord(m,l)%em /= -1) then
+             if(tempcluscoord(m,l)%em /= 0) then
+                if(cl(tempcluscoord(m,l)%em) .eqv. .false.) then
+                   g = tempcluscoord(m,l)%em
+                   f = tempcluscoord(m,l)%el
+                   if(protcoords(m,l)%em /= 0) then
+                      if((g/=protcoords(m,l)%em) .or. (f /=protcoords(m,l)%el)) then
+                         gt = protcoords(m,l)%em
+                         ft = protcoords(m,l)%el
+                         if((protcoords(gt,ft)%fm == m) .and. (protcoords(gt,ft)%fl == l)) then
+                            protcoords(gt,ft)%fm = 0
+                            protcoords(gt,ft)%fl = 0
+                         end if
+                      end if
+                   end if
+                   protcoords(g,f)%fm = m
+                   protcoords(g,f)%fl = l
+                end if
+             end if
+             protcoords(m,l)%em = tempcluscoord(m,l)%em
+             protcoords(m,l)%el = tempcluscoord(m,l)%el
+          else if(tempcluscoord(m,l)%em == -1) then
+             g = protcoords(m,l)%em
+             f = protcoords(m,l)%el
+             if((protcoords(g,f)%fm == m) .and. (protcoords(g,f)%fl == l)) then
+                protcoords(g,f)%fm = 0
+                protcoords(g,f)%fl = 0
+             end if
+             protcoords(m,l)%em = 0
+             protcoords(m,l)%el = 0
+          end if
+
+
+          if(tempcluscoord(m,l)%fm /= -1) then
+             if(tempcluscoord(m,l)%fm /= 0) then
+                if(cl(tempcluscoord(m,l)%fm) .eqv. .false.) then
+                   g = tempcluscoord(m,l)%fm
+                   f = tempcluscoord(m,l)%fl
+                   if(protcoords(m,l)%fm /= 0) then
+                      if((g/=protcoords(m,l)%fm) .or. (f /=protcoords(m,l)%fl)) then
+                         gt = protcoords(m,l)%fm
+                         ft = protcoords(m,l)%fl
+                         if((protcoords(gt,ft)%em == m) .and. (protcoords(gt,ft)%el == l)) then
+                            protcoords(gt,ft)%em = 0
+                            protcoords(gt,ft)%el = 0
+                         end if
+                      end if
+                   end if
+                   protcoords(g,f)%em = m
+                   protcoords(g,f)%el = l
+                end if
+             end if
+             protcoords(m,l)%fm = tempcluscoord(m,l)%fm
+             protcoords(m,l)%fl = tempcluscoord(m,l)%fl
+          else if(tempcluscoord(m,l)%fm == -1) then
+             g = protcoords(m,l)%fm
+             f = protcoords(m,l)%fl
+             if((protcoords(g,f)%em == m) .and. (protcoords(g,f)%el == l)) then
+                protcoords(g,f)%em = 0
+                protcoords(g,f)%el = 0
+             end if
+             protcoords(m,l)%fm = 0
+             protcoords(m,l)%fl = 0
+          end if
+
+
+       end do
+    end do
+
+  end subroutine updateclusbonds
+
+  subroutine clustermove1(chainno,delx,dely,delz,tempcluscoord,moveallow,ctbo,cllist,cl,moved)
+    !if the cluster move is only by 1 lattice spacing then overlap check is just checking that none of the
+    !beads are neighbouring a bead that isn't in the cluster - in the direction of movement
+    integer,intent(in) :: chainno,delx,dely,delz,moved
+    integer,dimension(:,:),intent(inout)::ctbo
+    logical,dimension(:),intent(in)::cl
+    logical,intent(inout)::moveallow
+    Type(prottemp),dimension(:,:),intent(inout) :: tempcluscoord
+    integer,dimension(:),intent(inout) ::cllist
+    integer :: b,pr,st,maxback,maxl
+    logical :: clusmove
+
+    clusmove = .true.
+    moveallow = .true.
+    maxl = chlen(chainno)
+
+
+    call fastoverlap(chainno,maxl,cllist,clusmove,moved)
+
+    if(clusmove .eqv. .false.) then
+       moveallow = .false.
+       return
+    end if
+    do b =1,maxl
+       tempcluscoord(chainno,b)%x = modulo(protcoords(chainno,b)%x + delx-1,gridsize)+1
+       tempcluscoord(chainno,b)%y = modulo(protcoords(chainno,b)%y + dely-1,gridsize)+1
+       tempcluscoord(chainno,b)%z = modulo(protcoords(chainno,b)%z + delz-1,gridsize)+1
+       ctbo(chainno,b) = bonddd(chainno,b)
+
+
+    end do
+31  if(clusmove .eqv. .false.) moveallow = .false.
+    !calculate the energy penalty and insure no overlaps
+
+  end subroutine clustermove1
+
+
+
+  subroutine clustermove2(chainno,delx,dely,delz,tempcluscoord,moveallow,ctbo,cllist,cl)
+    !this subroutine is a full overlap check for a cluster step size of any length
+    integer,intent(in) :: chainno,delx,dely,delz
+    integer,dimension(:,:),intent(inout)::ctbo
+    logical,dimension(:),intent(in)::cl
+    logical,intent(inout)::moveallow
+    Type(prottemp),dimension(:,:),intent(inout) :: tempcluscoord
+    integer,dimension(:),intent(inout) ::cllist
+    integer :: b,pr,st,maxback,maxl
+    logical :: clusmove
+
+    clusmove = .true.
+    moveallow = .true.
+    maxl = chlen(chainno)
+    do b =1,maxl
+       tempcluscoord(chainno,b)%x = modulo(protcoords(chainno,b)%x + delx-1,gridsize)+1
+       tempcluscoord(chainno,b)%y = modulo(protcoords(chainno,b)%y + dely-1,gridsize)+1
+       tempcluscoord(chainno,b)%z = modulo(protcoords(chainno,b)%z + delz-1,gridsize)+1
+       ctbo(chainno,b) = bonddd(chainno,b)
+
+       do pr = 1,nprotein
+          if(cl(pr) .eqv. .true.) goto 39
+          maxback = chlen(pr)
+          do st = 1,maxback,1
+             if(overlapsclus(chainno,pr,b,st,tempcluscoord) .eqv. .false.) then
+                clusmove = .false.
+                !write(6,*) 'translation fail'
+                goto 31
+             end if
+          end do
+39        continue
+       end do
+
+    end do
+31  if(clusmove .eqv. .false.) moveallow = .false.
+    !calculate the energy penalty and insure no overlaps
+
+  end subroutine clustermove2
+
+
+  subroutine fastoverlap(m,maxl,cllist,clusmove,moved)
+    !check that none of the beads have neighbours that aren't in
+    !the cluster in the direction of movement
+    integer,intent(in)::m,maxl,moved
+    integer,dimension(:),intent(inout) ::cllist
+    logical,intent(inout)::clusmove
+    integer::l
+
+    if(moved == 1) then
+       do l = 1,maxl
+          if(protcoords(m,l)%am /=0) then
+             if(ANY(cllist .eq. protcoords(m,l)%am)) then
+                continue
+             else
+                clusmove = .false.
+                return
+             end if
+          end if
+       end do
+    else if(moved == 2) then
+       do l = 1,maxl
+          if(protcoords(m,l)%bm /=0) then
+             if(ANY(cllist .eq. protcoords(m,l)%bm)) then
+                continue
+             else
+                clusmove = .false.
+                return
+             end if
+          end if
+       end do
+    else if(moved == 3) then
+       do l = 1,maxl
+          if(protcoords(m,l)%cm /=0) then
+             if(ANY(cllist .eq. protcoords(m,l)%cm)) then
+                continue
+             else
+                clusmove = .false.
+                return
+             end if
+          end if
+       end do
+    else if(moved == 4) then
+       do l = 1,maxl
+          if(protcoords(m,l)%dm /=0) then
+             if(ANY(cllist .eq. protcoords(m,l)%dm)) then
+                continue
+             else
+                clusmove = .false.
+                return
+             end if
+          end if
+       end do
+    else if(moved == 5) then
+       do l = 1,maxl
+          if(protcoords(m,l)%em /=0) then
+             if(ANY(cllist .eq. protcoords(m,l)%em)) then
+                continue
+             else
+                clusmove = .false.
+                return
+             end if
+          end if
+       end do
+    else if(moved == 6) then
+       do l = 1,maxl
+          if(protcoords(m,l)%fm /=0) then
+             if(ANY(cllist .eq. protcoords(m,l)%fm)) then
+                continue
+             else
+                clusmove = .false.
+                return
+             end if
+          end if
+       end do
+    end if
+
+
+
+  end subroutine fastoverlap
 
 
 
   subroutine debug
+    !checks system for overlaps, bbond discrepancies and linker breakages
     integer::m,l,f,g,dx,dy,dz,maxlengthss,maxl,zz
- 
+
 
     !write(6,*) 'debug start'
     do m = 1,nprotein,1
@@ -4168,15 +4098,15 @@ end subroutine length
              end do
           end do
 
-        if(l>1) then
- dx = min(abs(protcoords(m,l)%x - protcoords(m,l-1)%x),gridsize-abs(protcoords(m,l)%x &
+          if(l>1) then
+             dx = min(abs(protcoords(m,l)%x - protcoords(m,l-1)%x),gridsize-abs(protcoords(m,l)%x &
                   - protcoords(m,l-1)%x))
              dy = min(abs(protcoords(m,l)%y - protcoords(m,l-1)%y),gridsize-abs(protcoords(m,l)%y &
                   - protcoords(m,l-1)%y)) 
              dz = min(abs(protcoords(m,l)%z - protcoords(m,l-1)%z),gridsize-abs(protcoords(m,l)%z &
                   - protcoords(m,l-1)%z)) 
 
-              sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
+             sumdebug = sqrt(real((dx**2) + (dy**2) + (dz**2)))
              if(sumdebug > protcoords(m,1)%linker) then
                 write(6,*) 'SPLIT',m,l,l-1,sumdebug
                 finalfail = .true.
@@ -4187,10 +4117,10 @@ end subroutine length
        end do
     end do
 
-   
 
-    
-         
+
+
+
     do m =1,nprotein
        maxl = chlen(m)
        do l=1,maxl
@@ -4206,7 +4136,7 @@ end subroutine length
              if((protcoords(g,f)%bm /=m) .or. (protcoords(g,f)%bl /=l)) then
                 write(6,*) 'FAIL-bond mismatch',m,l,g,f,'a',protcoords(g,f)%bm,&
                      protcoords(g,f)%bl
-                                write(6,*) 'protein a',protcoords(m,l)
+                write(6,*) 'protein a',protcoords(m,l)
                 write(6,*) 'protein b',protcoords(g,f)
                 finalfail = .true.
              end if
@@ -4222,7 +4152,7 @@ end subroutine length
              if((protcoords(g,f)%am /=m) .or. (protcoords(g,f)%al /=l)) then
                 write(6,*) 'FAIL-bond mismatch',m,l,g,f,'b',protcoords(g,f)%am,&
                      protcoords(g,f)%al
-                                write(6,*) 'protein a',protcoords(m,l)
+                write(6,*) 'protein a',protcoords(m,l)
                 write(6,*) 'protein b',protcoords(g,f)
                 finalfail = .true.
              end if
@@ -4239,7 +4169,7 @@ end subroutine length
              if((protcoords(g,f)%dm /=m) .or. (protcoords(g,f)%dl /=l)) then
                 write(6,*) 'FAIL-bond mismatch',m,l,g,f,'c',protcoords(g,f)%dm,&
                      protcoords(g,f)%dl
-                                write(6,*) 'protein a',protcoords(m,l)
+                write(6,*) 'protein a',protcoords(m,l)
                 write(6,*) 'protein b',protcoords(g,f)
                 finalfail = .true.
              end if
@@ -4269,7 +4199,7 @@ end subroutine length
              if((protcoords(g,f)%fm /=m) .or. (protcoords(g,f)%fl /=l)) then
                 write(6,*) 'FAIL-bond mismatch',m,l,g,f,'e',protcoords(g,f)%fm,&
                      protcoords(g,f)%fl
-                                write(6,*) 'protein a',protcoords(m,l)
+                write(6,*) 'protein a',protcoords(m,l)
                 write(6,*) 'protein b',protcoords(g,f)
                 finalfail = .true.
              end if
@@ -4297,7 +4227,7 @@ end subroutine length
 
     if(finalfail .eqv. .true.) then
        write(6,*) time
-       
+
        stop 9
     end if
 
@@ -4307,27 +4237,32 @@ end subroutine length
 
 
 
-  
+
   subroutine clustercount
+!subroutine that allocates all chains to clusters and finds the largest cluster for analysis
     integer :: m,l,g,f,clcount,clusterpop,bdir,maxlengthss,maxback,clustcount,a,content,onepop,z
     integer :: acconn,cconn,atconn,tconn
-    !integer,dimension(:),allocatable:: clnos
+    integer,dimension(:),allocatable:: clnos
     logical :: clusyes,adjver,newcl
     type(prottemp),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable:: cllist,histcl!,mashist
     integer :: oldcl,dum1,dum2,zzz,maxclus,normalisedsize
-    integer,dimension(:,:),allocatable::cb,conn,bound
-    integer,dimension(:),allocatable::maxcluslist,concount
+    integer,dimension(:,:),allocatable::cb,conn
+    integer,dimension(:),allocatable::maxcluslist,concount,correlationone,correlationcluster
     double precision::maxclusenergy
+!real :: time1,time2
     allocate(cb(nprotein,nprotein))
-    !allocate(clnos(nprotein))
+    allocate(clnos(nprotein))
     allocate(tempcoord(maxlength))
     allocate(cllist(nprotein))
     allocate(histcl(nprotein))
     allocate(conn(nprotein,maxlength))
     allocate(concount(nprotein))
-allocate(bound(nprotein,maxlength))    
-!allocate(mashist(10))
+    allocate(correlationone(nprotein))
+    allocate(correlationcluster(nprotein))
+    correlationone(:) = 0
+    correlationcluster(:) = 0
+    !allocate(mashist(10))
     maxclusenergy = 0.0d0
     normalisedsize = 0
     clcount = 0
@@ -4340,11 +4275,10 @@ allocate(bound(nprotein,maxlength))
        concount(m) =0
        do a =1,maxlength
           conn(m,a)=0
-bound(m,a)= 0
-          end do
-           end do
+       end do
+    end do
 
-           a = 1
+    a = 1
 
     do m = 1,nprotein
        do g = 1,nprotein
@@ -4353,95 +4287,64 @@ bound(m,a)= 0
     end do
 
 
+!call CPU_TIME(time1)
+
     do m = 1,nprotein-1,1
        maxback = chlen(m)
        do g = m+1,nprotein,1
           !if((g/=m) .and. (clnos(m) /= clnos(g))) then
-             maxlengthss = chlen(g)
-             do l = 1,maxback
-                tempcoord(l)%x = protcoords(m,l)%x
-                tempcoord(l)%y = protcoords(m,l)%y
-                tempcoord(l)%z = protcoords(m,l)%z
-                do f = 1,maxlengthss
-                   call adjacent(g,l,f,tempcoord,adjver,bdir)              
-                   if(adjver.eqv. .true.) then
-                      if(isbond .eqv. .true.) then
-                         cb(m,g) = 1
-                         cb(g,m) = 1
-                         if(interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0) then
+          maxlengthss = chlen(g)
+          do l = 1,maxback
+             tempcoord(l)%x = protcoords(m,l)%x
+             tempcoord(l)%y = protcoords(m,l)%y
+             tempcoord(l)%z = protcoords(m,l)%z
+             do f = 1,maxlengthss
+                call adjacent(g,l,f,tempcoord,adjver,bdir)              
+                if(adjver.eqv. .true.) then
+                   if((bdir == bonddd(g,f)) .and. (bdir == (-1*bonddd(m,l))) .and. &
+                        (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0)) then
 
-                            if(any(conn(m,:) .eq. g)) then
-                               goto 63
-                            else
-                               concount(m) = concount(m) + 1
-                               conn(m,concount(m)) = g
-                            end if
-63                          continue
-
-                            if(any(conn(g,:) .eq. m)) then
-                               goto 83
-                            else
-                               concount(g) = concount(g) + 1
-                               conn(g,concount(g)) = m
-                            end if
-83                          continue
-                            
-                            if(clnos(g) < clnos(m)) then
-                               oldcl = clnos(m)
-                               do zzz = 1,nprotein
-                                  if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
-                               end do
-                            else if(clnos(g)> clnos(m)) then
-                               oldcl =clnos(g)
-                               do zzz = 1,nprotein
-                                  if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
-                               end do
-                            end if
-                            clusyes = .true.
-                         end if
+if(m == 1) correlationone(g) = 1
+                      
+                      if(any(conn(m,:) .eq. g)) then
+                         goto 65
+                      else
+                         concount(m) = concount(m) + 1
+                         conn(m,concount(m)) = g
                       end if
-                      if((bdir == bonddd(g,f)) .and. (bdir == (-1*bonddd(m,l))) .and. &
-                           (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0)) then
-bound(m,l) = 1
-bound(g,f) = 1
-                     if(any(conn(m,:) .eq. g)) then
-                            goto 65
-                         else
-                            concount(m) = concount(m) + 1
-                            conn(m,concount(m)) = g
-                         end if
-65                       continue
+65                    continue
 
-                         if(any(conn(g,:) .eq. m)) then
-                            goto 85
-                         else
-                            concount(g) = concount(g) + 1
-                            conn(g,concount(g)) = m
-                         end if
-85                       continue
-                         
-                         cb(m,g) = 1
-                         cb(g,m) = 1
-                         if(clnos(g) < clnos(m)) then
-                            oldcl = clnos(m)
-                            do zzz = 1,nprotein
-                               if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
-                            end do
-                         else if(clnos(g)> clnos(m)) then
-                            oldcl =clnos(g)
-                            do zzz = 1,nprotein
-                               if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
-                            end do
-                         end if
-                         clusyes = .true.                 
+                      if(any(conn(g,:) .eq. m)) then
+                         goto 85
+                      else
+                         concount(g) = concount(g) + 1
+                         conn(g,concount(g)) = m
                       end if
+85                    continue
+
+                      cb(m,g) = 1
+                      cb(g,m) = 1
+                      if(clnos(g) < clnos(m)) then
+                         oldcl = clnos(m)
+                         do zzz = 1,nprotein
+                            if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
+                         end do
+                      else if(clnos(g)> clnos(m)) then
+                         oldcl =clnos(g)
+                         do zzz = 1,nprotein
+                            if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
+                         end do
+                      end if
+                      clusyes = .true.                 
                    end if
-                end do
+                end if
              end do
+          end do
           !end if
        end do
     end do
 
+!call CPU_TIME(time2)
 
     do m = 1,nprotein
        if(clnos(m) /=m) then
@@ -4485,21 +4388,22 @@ bound(g,f) = 1
           content = g
        end if
     end do
-allocate(maxcluslist(maxclus))
+    allocate(maxcluslist(maxclus))
 
-z = 1
-atconn= 0
-do m = 1,nprotein
-   if(protcoords(m,1)%species==1) atconn = atconn+concount(m)
+    z = 1
+    atconn= 0
+    do m = 1,nprotein
+       if(protcoords(m,1)%species==1) atconn = atconn+concount(m)
        if(clnos(m) == content)then
           maxcluslist(z) = m
           z = z+1
+correlationcluster(m) = 1
        end if
     end do
 
     cconn =0
     acconn =0
-    
+
     do m = 1,maxclus   
        g = maxcluslist(m)
        cconn = cconn + concount(g)
@@ -4508,15 +4412,11 @@ do m = 1,nprotein
     end do
 
     tconn=sum(concount(:))
-    
+
     if((maxclus >10) .and. (suffclust .eqv. .false.)) then
        suffclust = .true.
-       call pdbsetupalt(content,clnos)
+       call pdbsetupalt
     end if
-
-    magiccontent = content
-
-    !write(6,*) 'CONTENTTTTTTTTT',content
     !write(6,*) 'maxcl',maxclus
     !do g = 1,10,1
     !do m = 1,nprotein
@@ -4527,264 +4427,547 @@ do m = 1,nprotein
     !write(38,*) time, (g/10.0)*(maxclus),mashist(g)
     !end do
 
-   ! write(6,*) 'tconn',tconn,'atconn',atconn,'acconn',acconn,'cconn',cconn,maxclus
-onepop = 0
-do m = 1,maxclus
-   g = maxcluslist(m)
-if(protcoords(g,1)%species ==1) onepop = onepop+1
-end do
-
-    do m = 1,nprotein
-       write(38,*) time,histcl(m),histcl(m)**2
+    ! write(6,*) 'tconn',tconn,'atconn',atconn,'acconn',acconn,'cconn',cconn,maxclus
+    onepop = 0
+    do m = 1,maxclus
+       g = maxcluslist(m)
+       if(protcoords(g,1)%species ==1) onepop = onepop+1
     end do
 
+    if(restart .eqv. .true.) then
+       do m = 1,nprotein
+          if(histcl(m)/=0) write(38,*) time,histcl(m),histcl(m)**2
+       end do
+    end if
 
     !if(noinfo .eqv. .false.) then
     !if(clustcount /= 0) write(6,*) time,clustcount, 'cluster!'
     if(clustcount /= 0) write(82,*) time,clustcount, clusterpop, real(clusterpop)/clustcount &
          , real((normalisedsize) +(nprotein-clusterpop))/nprotein,maxclus,onepop,maxclus-onepop,maxclusenergy&
-,sum(chen)-maxclusenergy,acconn,cconn-acconn,atconn-acconn,tconn-((atconn-acconn)+cconn) 
+         ,sum(chen)-maxclusenergy,acconn,cconn-acconn,atconn-acconn,tconn-((atconn-acconn)+cconn) 
 
     !,clcount
     !if(time>10000) write(6,*) 'output',time, real((normalisedsize)+(nprotein-clusterpop))/nprotein,real((normalisedsize)+ &
     !(nprotein-clusterpop))
     if(clustcount == 0)  write(82,*) time,clustcount, clusterpop,0.0,0.0,0.0,0,0,0,0,0,0,0,0
     !end if
-    !write(6,*) 'CONTENTTTTTTTTT',content
 
+    write(886,*) correlationone(:)
+    write(887,*) correlationcluster(:)
+
+    !write(6,*) 'RELIABLE CLUSTER COUNT',clustcount,time2-time1
     call phase(content,maxclus,clnos,cb)
     deallocate(cllist)
-    !deallocate(clnos)
+    deallocate(clnos)
     deallocate(tempcoord)
     deallocate(histcl)
-    !write(6,*) 'CONTENTTTTTTTTT',content
   end subroutine clustercount
 
 
-  subroutine clustercom(m,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge)
-          integer,intent(in)::m
-          integer,intent(inout)::clsize,totcluspop
-          integer,dimension(:),intent(inout) ::cllist,rcounter,checklist
-          integer,dimension(:,:),intent(inout) ::cb,route
-          integer ::  a,b,base,maxl,maxb,ra,dint,centralchain,f,g,cench,rc,zx,maxltest
-          double precision :: delx,dely,delz
-          double precision,dimension(:,:),allocatable::comx,comy,comz
-          logical,intent(inout) :: toolarge
+  subroutine strippedclustercount
+!subroutine that allocates all chains to clusters and finds the largest cluster for analysis
+    integer :: m,l,g,f,clcount,clusterpop,bdir,maxlengthss,maxback,clustcount,a,content,onepop,z
+    integer :: acconn,cconn,atconn,tconn
+    integer,dimension(:),allocatable:: clnos
+    logical :: clusyes,adjver,newcl,bound
+    type(prottemp),dimension(:),allocatable :: tempcoord
+    integer,dimension(:),allocatable:: cllist,histcl!,mashist
+    integer :: oldcl,dum1,dum2,zzz,maxclus,normalisedsize
+    integer,dimension(:,:),allocatable::cb,conn
+    integer,dimension(:),allocatable::maxcluslist,concount,correlationone,correlationcluster
+    double precision::maxclusenergy
+    !    real::time1,time2    
+allocate(cb(nprotein,nprotein))
+    allocate(clnos(nprotein))
+    allocate(cllist(nprotein))
+    allocate(histcl(nprotein))
+    allocate(correlationone(nprotein))
+    allocate(correlationcluster(nprotein))
+    correlationone(:) = 0
+    correlationcluster(:) = 0
+    !allocate(mashist(10))
+    maxclusenergy = 0.0d0
+    normalisedsize = 0
+    clcount = 0
+    clusterpop = 0
+    clustcount = 0
+    do m = 1,nprotein
+       clnos(m) = m
+       cllist(m) = 0
+       histcl(m) = 0
+    end do
 
-          logical :: compass
-          type(basicp),intent(inout) :: comcluster
-          type(rprot) :: dummycom,dpcomcluster
+    a = 1
 
-          allocate(comx(nprotein,nprotein))
-          allocate(comy(nprotein,nprotein))
-          allocate(comz(nprotein,nprotein))
+    do m = 1,nprotein
+       do g = 1,nprotein
+          cb(m,g) = 0
+       end do
+    end do
 
-          t = time+1
+!call CPU_TIME(time1)
 
-          !write(6,*) '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-          compass = .false.
-          comcluster%x = 0
-          comcluster%y = 0
-          comcluster%z = 0
-
-
-          maxl = chlen(m)
-          totcluspop = maxl 
-
-          comx = 0.0d0
-          comy = 0.0d0
-          comz = 0.0d0
-          dummycom%x = 0
-          dummycom%y = 0
-          dummycom%z = 0
-          if(clsize ==1) goto 76
-
-
-          do dint =1,nprotein
-             rcounter(dint) = 0
-          end do
-
-          do b = 1,clsize
-             do dint = 1,nprotein
-                route(dint,b) = 0
-             end do
-             checklist(b) = 0
-          end do
-
-          totcluspop = 0
-
-          !write(6,*) 'backup 1',rcounter(4)
-          do a = 1,clsize-1,1
-             b = cllist(a)
-             !write(6,*) 'a'
-             !if(clsize>1) write(6,*) 'component',b,com(1,b)%x,com(1,b)%y,com(1,b)%z
-             do g = a+1,clsize
-                f = cllist(g)
-                comx(b,f) = 0.0d0
-                comy(b,f) = 0.0d0
-                comz(b,f) = 0.0d0
-                comx(f,b) = 0.0d0
-                comy(f,b) = 0.0d0
-                comz(f,b) = 0.0d0
-                if(cb(b,f)==1) then
-                   maxb = chlen(b)
-                   maxltest = chlen(f)
-                   delx = com(1,f)%x - com(1,b)%x
-                   if (delx > (gridsize)/2) delx = delx-gridsize
-                   if (delx < -(gridsize)/2) delx = delx + gridsize
-                   comx(b,f) =  delx
-                   comx(f,b) = -delx
-                   dely = com(1,f)%y - com(1,b)%y
-                   if (dely > (gridsize)/2) dely = dely-gridsize
-                   if (dely < -(gridsize)/2) dely = dely + gridsize
-                   comy(b,f) =  dely
-                   comy(f,b) = -dely
-                   delz = com(1,f)%z - com(1,b)%z
-                   if (delz > (gridsize)/2) delz = delz-gridsize
-                   if (delz < -(gridsize)/2) delz = delz + gridsize
-                   comz(b,f) =  delz
-                   comz(f,b) = -delz
+    do m = 1,nprotein-1
+       maxback = chlen(m)
+       do l = 1,maxback
+          bound = .false.
+          if(bonddd(m,l) ==1) then
+             if((protcoords(m,l)%am /= 0)) then
+if ((bonddd(protcoords(m,l)%am,protcoords(m,l)%al) == -1)) then
+                bound = .true.
+                g = protcoords(m,l)%am
+                f = protcoords(m,l)%al
+             end if
+        end if    
+      else if  (bonddd(m,l) ==-1) then
+             if((protcoords(m,l)%bm /= 0)) then
+        if ((bonddd(protcoords(m,l)%bm,protcoords(m,l)%bl) == 1)) then
+                bound = .true.
+                g = protcoords(m,l)%bm
+                f = protcoords(m,l)%bl
+             end if
+        end if  
+        else if  (bonddd(m,l) ==2) then
+             if((protcoords(m,l)%cm /= 0)) then
+if ((bonddd(protcoords(m,l)%cm,protcoords(m,l)%cl) == -2)) then
+                bound = .true.
+                g = protcoords(m,l)%cm
+                f = protcoords(m,l)%cl
+             end if
                 end if
-             end do
-          end do
-
-          centralchain = m
-          cench = m
-          checklist(1) = m
-          zx = 2
-
-
-          do dint = 1,clsize
-             cench = checklist(dint)
-             !write(6,*) 'checklist',checklist(dint)
-
-             maxl = chlen(dint)
-             totcluspop = totcluspop + maxl
-
-             do b = 1,clsize
-                a = cllist(b)
-                if(a==cench) goto 16
-                if(cb(cench,a) == 1) then
-                   if(ANY(checklist .eq. a)) goto 16
-                   rcounter(a) = rcounter(a) + 1
-                   route(a,rcounter(a)) = a
-
-                   do rc = rcounter(a),1,-1
-                      route(a,rc+rcounter(cench)) = route(a,rc)
-                   end do
-
-                   do rc = 1,rcounter(cench),1
-                      route(a,rc) = route(cench,rc)
-                   end do
-                   rcounter(a) = rcounter(a) + rcounter(cench)
-                   !write(6,*) 'rcounts',rcounter(b),rcounter(dummyint),a,cench
-                   checklist(zx) = a
-                   zx = zx +1
+          else if  (bonddd(m,l) ==-2) then
+             if((protcoords(m,l)%dm /= 0)) then
+if ((bonddd(protcoords(m,l)%dm,protcoords(m,l)%dl) == 2)) then
+                bound = .true.
+                g = protcoords(m,l)%dm
+                f = protcoords(m,l)%dl
+             end if
+        end if
+          else if  (bonddd(m,l) ==3) then
+             if((protcoords(m,l)%em /= 0)) then
+                if ((bonddd(protcoords(m,l)%em,protcoords(m,l)%el) == -3)) then
+                bound = .true.
+                g = protcoords(m,l)%em
+                f = protcoords(m,l)%el
+             end if
+        end if
+          else if  (bonddd(m,l) ==-3) then
+             if((protcoords(m,l)%fm /= 0)) then
+                if ((bonddd(protcoords(m,l)%fm,protcoords(m,l)%fl) == 3)) then
+                bound = .true.
+                g = protcoords(m,l)%fm
+                f = protcoords(m,l)%fl
+                        end if
                 end if
-16              if(a == a) continue
-             end do
-
-          end do
-
-
-          !write(6,*) 'backup 2',rcounter(4)
-          !write(6,*) 'orig central chain',centralchain,toolarge
-          call comlargecomp(clsize,dummycom,checklist,route,rcounter,comx,comy,comz,toolarge)
-          !write(6,*) 'key'
-
-
-          !write(6,*) 'backup 3',rcounter(4)
-
-76        if(clsize == 1) then
-             maxl = chlen(m)
-             centralchain = m
-             totcluspop = maxl
-             ! write(6,*) 'individual chain',com(1,m)%x,com(1,m)%y,com(1,m)%z
           end if
-
-          !if(clsize>1) write(6,*) 'totcluspop',totcluspop
-          !write(6,*) centralchain
-          !write(6,*) 'runtime', com(1,centralchain)%x
-          !write(6,*) dummycom%x
-          comcluster%x = INT(modulo((com(1,centralchain)%x) + (dummycom%x/totcluspop)-1,real(gridsize))+1)
-          comcluster%y = INT(modulo((com(1,centralchain)%y) + (dummycom%y/totcluspop)-1,real(gridsize))+1)
-          comcluster%z = INT(modulo((com(1,centralchain)%z) + (dummycom%z/totcluspop)-1,real(gridsize))+1)
-
-
-          dpcomcluster%x = modulo((com(1,centralchain)%x) + (dummycom%x/totcluspop)-1,real(gridsize))+1
-          dpcomcluster%y = modulo((com(1,centralchain)%y) + (dummycom%y/totcluspop)-1,real(gridsize))+1
-          dpcomcluster%z = modulo((com(1,centralchain)%z) + (dummycom%z/totcluspop)-1,real(gridsize))+1
-          write(3,*) time,dpcomcluster%x,dpcomcluster%y,dpcomcluster%z
-
-          if(settingup .eqv. .true.) then
-             dpcomclusterinit%x = dpcomcluster%x
-             dpcomclusterinit%y = dpcomcluster%y
-             dpcomclusterinit%z = dpcomcluster%z
+          
+          if((bound .eqv. .true.) .and. (g>m)) then
+             if (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0) then
+                if(m == 1) correlationone(g) = 1
+                
+                
+                if(clnos(g) < clnos(m)) then
+                   oldcl = clnos(m)
+                   do zzz = 1,nprotein
+                      if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
+                   end do
+                else if(clnos(g)> clnos(m)) then
+                   oldcl =clnos(g)
+                   do zzz = 1,nprotein
+                      if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
+                   end do
+                end if
+                clusyes = .true.                 
              end if
-53        if(compass .eqv. .true.) continue
+          end if
+       
+    
+             
+       end do
+    end do
+    
+          
+!call CPU_TIME(time2)
 
-        end subroutine clustercom
-
-
-
-        subroutine clustercomcheck(m,clsize,comcluster,cb,cllist)
-          integer,intent(in)::m,clsize
-          integer,dimension(:),intent(in) ::cllist
-          integer,dimension(:,:),intent(in) ::cb
-          integer ::  a,b,base,maxl,totcluspop,maxb,ra
-          double precision :: delx,dely,delz,comx,comy,comz
-          logical :: compass
-          type(basicp),intent(inout) :: comcluster
-          type(rprot) :: dummycom
-          t = time+1
-          !write(6,*) 'com start'
-          compass = .false.
-          comcluster%x = 0
-          comcluster%y = 0
-          comcluster%z = 0
-          !clsize = 1
-
-          maxl = chlen(m)
-          totcluspop = maxl 
-
-          comx = 0.0d0
-          comy = 0.0d0
-          comz = 0.0d0
-
-          do ra = 1,clsize
-             a = cllist(ra)
-
-             if(a/=m) then
-                maxb = chlen(a)
-                delx = com(1,a)%x - com(1,m)%x
-                if (delx > gridsize/2) delx = delx-gridsize
-                if (delx < -gridsize/2) delx = delx + gridsize
-                comx = comx + (delx*maxb)
-                dely = com(1,a)%y -com(1,m)%y
-                if (dely > gridsize/2) dely = dely-gridsize
-                if (dely < -gridsize/2) dely = dely + gridsize
-                comy = comy + (dely*maxb)
-                delz = com(1,a)%z-com(1,m)%z
-                if (delz > gridsize/2) delz = delz-gridsize
-                if (delz < -gridsize/2) delz = delz + gridsize
-                comz = comz + (delz*maxb)
-                totcluspop = totcluspop + maxb
-             end if
-          end do
+    do m = 1,nprotein
+       if(clnos(m) /=m) then
+          clusterpop = clusterpop + 1
+          if(ANY(cllist(:) .eq. clnos(m))) then
+             continue
+          else
+             clustcount = clustcount + 1
+             cllist(a) = clnos(m)
+             a = a+1
+          end if
+       end if
+    end do
 
 
-          dummycom%x = modulo((com(1,m)%x) + (comx/totcluspop)-1,real(gridsize))+1
-          comcluster%x = INT(dummycom%x)
-          dummycom%y = modulo((com(1,m)%y) + (comy/totcluspop)-1,real(gridsize))+1
-          comcluster%y = INT(dummycom%y)
-          dummycom%z = modulo((com(1,m)%z) + (comz/totcluspop)-1,real(gridsize))+1
-          comcluster%z = INT(dummycom%z)
+    if(clustcount /= 0 .and.  (time > equilib)) then
+       avecluspop = avecluspop + clusterpop
+       aveclusnumber = aveclusnumber + clustcount
+    end if
+
+    clusterpop = clusterpop + clustcount
+
+    do g = 1,nprotein
+       do m = g,nprotein
+          if(clnos(m) ==g) then
+             histcl(g) = histcl(g) +1
+          end if
+       end do
+       normalisedsize =  normalisedsize + ((histcl(g))**2)
+    end do
 
 
-        end subroutine clustercomcheck
+    !maxclus = maxval(histcl)
+
+
+    maxclus = 0
+    do g = 1,nprotein
+       if(histcl(g) > maxclus) then
+          maxclus = histcl(g)
+          content = g
+       end if
+    end do
+    allocate(maxcluslist(maxclus))
+
+    z = 1
+    atconn= 0
+    do m = 1,nprotein
+       if(clnos(m) == content)then
+          maxcluslist(z) = m
+          z = z+1
+          correlationcluster(m) = 1
+       end if
+    end do
+
+
+    write(886,*) correlationone(:)
+    write(887,*) correlationcluster(:)
+
+    !write(6,*) 'TEST cLUSTER COUNT',clustcount,time2-time1
+   
+    deallocate(cllist)
+    deallocate(clnos)
+    !deallocate(tempcoord)
+    deallocate(histcl)
+  end subroutine strippedclustercount
 
   
+
+  subroutine clustercom(m,clsize,comcluster,cb,cllist,route,rcounter,totcluspop,checklist,toolarge,dpcomcluster)
+    !finds the centre of mass of a cluster
+    integer,intent(in)::m
+    integer,intent(inout)::clsize,totcluspop
+    integer,dimension(:),intent(inout) ::cllist,rcounter,checklist
+    integer,dimension(:,:),intent(inout) ::cb,route
+    integer ::  a,b,base,maxl,maxb,ra,dint,centralchain,f,g,cench,rc,zx,maxltest
+    double precision :: delx,dely,delz
+    double precision,dimension(:,:),allocatable::comx,comy,comz
+    logical,intent(inout) :: toolarge
+
+    logical :: compass
+    type(basicp),intent(inout) :: comcluster
+    type(rprot) :: dummycom
+    type(rprot),intent(inout) :: dpcomcluster
+
+    allocate(comx(nprotein,nprotein))
+    allocate(comy(nprotein,nprotein))
+    allocate(comz(nprotein,nprotein))
+
+    t = time+1
+
+    !write(6,*) '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+    compass = .false.
+    comcluster%x = 0
+    comcluster%y = 0
+    comcluster%z = 0
+
+
+    maxl = chlen(m)
+    totcluspop = maxl 
+
+    comx = 0.0d0
+    comy = 0.0d0
+    comz = 0.0d0
+    dummycom%x = 0
+    dummycom%y = 0
+    dummycom%z = 0
+    if(clsize ==1) goto 76
+
+
+    do dint =1,nprotein
+       rcounter(dint) = 0
+    end do
+
+    do b = 1,clsize
+       do dint = 1,nprotein
+          route(dint,b) = 0
+       end do
+       checklist(b) = 0
+    end do
+
+    totcluspop = 0
+
+    !write(6,*) 'backup 1',rcounter(4)
+    do a = 1,clsize-1,1
+       b = cllist(a)
+       !write(6,*) 'a'
+       !if(clsize>1) write(6,*) 'component',b,com(1,b)%x,com(1,b)%y,com(1,b)%z
+       do g = a+1,clsize
+          f = cllist(g)
+          comx(b,f) = 0.0d0
+          comy(b,f) = 0.0d0
+          comz(b,f) = 0.0d0
+          comx(f,b) = 0.0d0
+          comy(f,b) = 0.0d0
+          comz(f,b) = 0.0d0
+          if(cb(b,f)==1) then
+             maxb = chlen(b)
+             maxltest = chlen(f)
+             delx = com(1,f)%x - com(1,b)%x
+             if (delx > (gridsize)/2) delx = delx-gridsize
+             if (delx < -(gridsize)/2) delx = delx + gridsize
+             comx(b,f) =  delx
+             comx(f,b) = -delx
+             dely = com(1,f)%y - com(1,b)%y
+             if (dely > (gridsize)/2) dely = dely-gridsize
+             if (dely < -(gridsize)/2) dely = dely + gridsize
+             comy(b,f) =  dely
+             comy(f,b) = -dely
+             delz = com(1,f)%z - com(1,b)%z
+             if (delz > (gridsize)/2) delz = delz-gridsize
+             if (delz < -(gridsize)/2) delz = delz + gridsize
+             comz(b,f) =  delz
+             comz(f,b) = -delz
+          end if
+       end do
+    end do
+
+    centralchain = m
+    cench = m
+    checklist(1) = m
+    zx = 2
+
+
+    do dint = 1,clsize
+       cench = checklist(dint)
+       !write(6,*) 'checklist',checklist(dint)
+
+       maxl = chlen(dint)
+       totcluspop = totcluspop + maxl
+
+       do b = 1,clsize
+          a = cllist(b)
+          if(a==cench) goto 16
+          if(cb(cench,a) == 1) then
+             if(ANY(checklist .eq. a)) goto 16
+             rcounter(a) = rcounter(a) + 1
+             route(a,rcounter(a)) = a
+
+             do rc = rcounter(a),1,-1
+                route(a,rc+rcounter(cench)) = route(a,rc)
+             end do
+
+             do rc = 1,rcounter(cench),1
+                route(a,rc) = route(cench,rc)
+             end do
+             rcounter(a) = rcounter(a) + rcounter(cench)
+             !write(6,*) 'rcounts',rcounter(b),rcounter(dummyint),a,cench
+             checklist(zx) = a
+             zx = zx +1
+          end if
+16        if(a == a) continue
+       end do
+
+    end do
+
+
+    !write(6,*) 'backup 2',rcounter(4)
+    !write(6,*) 'orig central chain',centralchain,toolarge
+    call comlargecomp(clsize,dummycom,checklist,route,rcounter,comx,comy,comz,toolarge)
+    !write(6,*) 'key'
+
+
+    !write(6,*) 'backup 3',rcounter(4)
+
+76  if(clsize == 1) then
+       maxl = chlen(m)
+       centralchain = m
+       totcluspop = maxl
+       ! write(6,*) 'individual chain',com(1,m)%x,com(1,m)%y,com(1,m)%z
+    end if
+
+    !if(clsize>1) write(6,*) 'totcluspop',totcluspop
+    !write(6,*) centralchain
+    !write(6,*) 'runtime', com(1,centralchain)%x
+    !write(6,*) dummycom%x
+    comcluster%x = INT(modulo((com(1,centralchain)%x) + (dummycom%x/totcluspop)-1,real(gridsize))+1)
+    comcluster%y = INT(modulo((com(1,centralchain)%y) + (dummycom%y/totcluspop)-1,real(gridsize))+1)
+    comcluster%z = INT(modulo((com(1,centralchain)%z) + (dummycom%z/totcluspop)-1,real(gridsize))+1)
+
+
+    dpcomcluster%x = modulo((com(1,centralchain)%x) + (dummycom%x/totcluspop)-1,real(gridsize))+1
+    dpcomcluster%y = modulo((com(1,centralchain)%y) + (dummycom%y/totcluspop)-1,real(gridsize))+1
+    dpcomcluster%z = modulo((com(1,centralchain)%z) + (dummycom%z/totcluspop)-1,real(gridsize))+1
+    write(3,*) time,dpcomcluster%x,dpcomcluster%y,dpcomcluster%z
+
+53  if(compass .eqv. .true.) continue
+
+  end subroutine clustercom
+
+
+  subroutine comlargecomp(clsize,dummycom,checklist,route,rcounter,comx,comy,comz,toolarge)
+!finds the centre of mass of a large cluster
+    integer,intent(in)::clsize
+    integer,intent(inout),dimension(:,:)::route
+    integer,intent(inout),dimension(:)::checklist,rcounter
+    integer :: zna,a,b,rc,maxb
+    double precision,intent(in),dimension(:,:) ::comx,comy,comz
+    type(rprot),intent(inout) :: dummycom
+    logical,intent(inout)::toolarge
+    double precision :: bx,by,bz,maxx,maxy,maxz,minx,miny,minz
+    !write(6,*) 'centralchain',checklist(1)
+
+
+    minx = 0.0d0
+    miny = 0.0d0
+    minz = 0.0d0
+    maxx = 0.0d0
+    maxy = 0.0d0
+    maxz = 0.0d0
+
+    dummycom%x = 0.0d0
+    dummycom%y = 0.0d0
+    dummycom%z = 0.0d0
+
+    do zna = 2,clsize
+
+       bx = 0.0d0
+       by = 0.0d0
+       bz = 0.0d0
+       a= checklist(zna)
+       !write(6,*) 'checkking',a,zna,rcounter(zna)
+       maxb = chlen(a)
+       !write(6,*) 'route', route(zna,1),a
+       !write(6,*) 'finalcoms', comx(centralchain,route(zna,1)),rcounter(zna)
+
+       bx = comx(checklist(1),route(a,1))
+       by =comy(checklist(1),route(a,1))
+       bz = comz(checklist(1),route(a,1))
+
+       ! write(6,*) 'dummycom', dummycom%x,dummycom%y,dummycom%z
+       !write(6,*) 'x',comx(checklist(1),route(a,1)),checklist(1),route(a,1),&
+       !  com(1,checklist(1))%x,com(1,route(a,1))%x
+       ! write(6,*) 'y',comy(checklist(1),route(a,1)),checklist(1),route(a,1),&
+       !      com(1,checklist(1))%y,com(1,route(a,1))%y
+       !write(6,*) 'z',comz(checklist(1),route(a,1)),checklist(1),route(a,1),&
+       !    com(1,checklist(1))%z,com(1,route(a,1))%z
+
+
+       if(rcounter(a)>1) then
+          do rc = 1,rcounter(a)-1,1
+             !write(6,*) 'finalcoms', comz(centralchain,route(a,rc))
+             !write(6,*) 'route', route(zna,rc)
+             !write(6,*) 'total count =',rcounter(zna)
+             bx  = bx + comx(route(a,rc),route(a,rc+1))
+             by = by + comy(route(a,rc),route(a,rc+1))
+             bz = bz + comz(route(a,rc),route(a,rc+1))
+             !write(6,*) 'x',comx(route(a,rc),route(a,rc+1))
+             !write(6,*) 'y',comy(route(a,rc),route(a,rc+1))
+             !write(6,*) 'z',comz(route(a,rc),route(a,rc+1))
+             !write(6,*) 'dummycom', dummycom%x,dummycom%y,dummycom%z
+          end do
+       end if
+       !write(6,*) 'finito'
+
+       if(bx > maxx) maxx = bx
+       if(by > maxy) maxy = by
+       if(bz > maxz) maxz = bz
+       if(bx < minx) minx = bx
+       if(by < miny) miny = by
+       if(bz < minz) minz = bz
+
+       dummycom%x = dummycom%x + (maxb*bx)
+       dummycom%y = dummycom%y + (maxb*by)
+       dummycom%z = dummycom%z + (maxb*bz)
+
+    end do
+
+
+    if((maxx - minx) > real(gridsize/2)) toolarge = .true.
+    if((maxy - miny) > real(gridsize/2)) toolarge = .true.
+    if((maxz - minz) > real(gridsize/2)) toolarge = .true.
+
+    !do a = 1,clsize
+    !b= checklist(a)
+    !write(6,*) 'individual',b,com(1,b)%x,com(1,b)%y,com(1,b)%z
+    ! end do
+
+  end subroutine comlargecomp
+
+
+  subroutine clustercomcheck(m,clsize,comcluster,cb,cllist)
+    !check to see calculated centre of mass is correct
+    integer,intent(in)::m,clsize
+    integer,dimension(:),intent(in) ::cllist
+    integer,dimension(:,:),intent(in) ::cb
+    integer ::  a,b,base,maxl,totcluspop,maxb,ra
+    double precision :: delx,dely,delz,comx,comy,comz
+    logical :: compass
+    type(basicp),intent(inout) :: comcluster
+    type(rprot) :: dummycom
+    t = time+1
+    !write(6,*) 'com start'
+    compass = .false.
+    comcluster%x = 0
+    comcluster%y = 0
+    comcluster%z = 0
+    !clsize = 1
+
+    maxl = chlen(m)
+    totcluspop = maxl 
+
+    comx = 0.0d0
+    comy = 0.0d0
+    comz = 0.0d0
+
+    do ra = 1,clsize
+       a = cllist(ra)
+
+       if(a/=m) then
+          maxb = chlen(a)
+          delx = com(1,a)%x - com(1,m)%x
+          if (delx > gridsize/2) delx = delx-gridsize
+          if (delx < -gridsize/2) delx = delx + gridsize
+          comx = comx + (delx*maxb)
+          dely = com(1,a)%y -com(1,m)%y
+          if (dely > gridsize/2) dely = dely-gridsize
+          if (dely < -gridsize/2) dely = dely + gridsize
+          comy = comy + (dely*maxb)
+          delz = com(1,a)%z-com(1,m)%z
+          if (delz > gridsize/2) delz = delz-gridsize
+          if (delz < -gridsize/2) delz = delz + gridsize
+          comz = comz + (delz*maxb)
+          totcluspop = totcluspop + maxb
+       end if
+    end do
+
+
+    dummycom%x = modulo((com(1,m)%x) + (comx/totcluspop)-1,real(gridsize))+1
+    comcluster%x = INT(dummycom%x)
+    dummycom%y = modulo((com(1,m)%y) + (comy/totcluspop)-1,real(gridsize))+1
+    comcluster%y = INT(dummycom%y)
+    dummycom%z = modulo((com(1,m)%z) + (comz/totcluspop)-1,real(gridsize))+1
+    comcluster%z = INT(dummycom%z)
+
+
+  end subroutine clustercomcheck
+
+
   subroutine pdbsetup
+    !sets up vtf file for trajectory
     integer::m,l,maxl,acount,dumres
     character(len=8) :: atnum
     acount = 0
@@ -4828,100 +5011,8 @@ end do
   end subroutine pdbsetup
 
 
-  
-        subroutine comlargecomp(clsize,dummycom,checklist,route,rcounter,comx,comy,comz,toolarge)
-          integer,intent(in)::clsize
-          integer,intent(inout),dimension(:,:)::route
-          integer,intent(inout),dimension(:)::checklist,rcounter
-          integer :: zna,a,b,rc,maxb
-          double precision,intent(in),dimension(:,:) ::comx,comy,comz
-          type(rprot),intent(inout) :: dummycom
-          logical,intent(inout)::toolarge
-          double precision :: bx,by,bz,maxx,maxy,maxz,minx,miny,minz
-          !write(6,*) 'centralchain',checklist(1)
-
-
-          minx = 0.0d0
-          miny = 0.0d0
-          minz = 0.0d0
-          maxx = 0.0d0
-          maxy = 0.0d0
-          maxz = 0.0d0
-
-          dummycom%x = 0.0d0
-          dummycom%y = 0.0d0
-          dummycom%z = 0.0d0
-
-          do zna = 2,clsize
-
-             bx = 0.0d0
-             by = 0.0d0
-             bz = 0.0d0
-             a= checklist(zna)
-             !write(6,*) 'checkking',a,zna,rcounter(zna)
-             maxb = chlen(a)
-             !write(6,*) 'route', route(zna,1),a
-             !write(6,*) 'finalcoms', comx(centralchain,route(zna,1)),rcounter(zna)
-
-             bx = comx(checklist(1),route(a,1))
-             by =comy(checklist(1),route(a,1))
-             bz = comz(checklist(1),route(a,1))
-
-             ! write(6,*) 'dummycom', dummycom%x,dummycom%y,dummycom%z
-             !write(6,*) 'x',comx(checklist(1),route(a,1)),checklist(1),route(a,1),&
-             !  com(1,checklist(1))%x,com(1,route(a,1))%x
-             ! write(6,*) 'y',comy(checklist(1),route(a,1)),checklist(1),route(a,1),&
-             !      com(1,checklist(1))%y,com(1,route(a,1))%y
-             !write(6,*) 'z',comz(checklist(1),route(a,1)),checklist(1),route(a,1),&
-             !    com(1,checklist(1))%z,com(1,route(a,1))%z
-
-
-             if(rcounter(a)>1) then
-                do rc = 1,rcounter(a)-1,1
-                   !write(6,*) 'finalcoms', comz(centralchain,route(a,rc))
-                   !write(6,*) 'route', route(zna,rc)
-                   !write(6,*) 'total count =',rcounter(zna)
-                   bx  = bx + comx(route(a,rc),route(a,rc+1))
-                   by = by + comy(route(a,rc),route(a,rc+1))
-                   bz = bz + comz(route(a,rc),route(a,rc+1))
-                   !write(6,*) 'x',comx(route(a,rc),route(a,rc+1))
-                   !write(6,*) 'y',comy(route(a,rc),route(a,rc+1))
-                   !write(6,*) 'z',comz(route(a,rc),route(a,rc+1))
-                   !write(6,*) 'dummycom', dummycom%x,dummycom%y,dummycom%z
-                end do
-             end if
-             !write(6,*) 'finito'
-
-             if(bx > maxx) maxx = bx
-             if(by > maxy) maxy = by
-             if(bz > maxz) maxz = bz
-             if(bx < minx) minx = bx
-             if(by < miny) miny = by
-             if(bz < minz) minz = bz
-
-             dummycom%x = dummycom%x + (maxb*bx)
-             dummycom%y = dummycom%y + (maxb*by)
-             dummycom%z = dummycom%z + (maxb*bz)
-
-          end do
-
-
-          if((maxx - minx) > real(gridsize/2)) toolarge = .true.
-          if((maxy - miny) > real(gridsize/2)) toolarge = .true.
-          if((maxz - minz) > real(gridsize/2)) toolarge = .true.
-
-
-          write(161,*) maxx-minx,maxy-miny,maxz-minz
-          !do a = 1,clsize
-          !b= checklist(a)
-          !write(6,*) 'individual',b,com(1,b)%x,com(1,b)%y,com(1,b)%z
-          ! end do
-
-        end subroutine comlargecomp
-
-  subroutine pdbsetupalt(g,clnos)
-    integer,intent(in)::g
-    integer,dimension(:),intent(in):: clnos
+  subroutine pdbsetupalt
+    !new subroutine to setup vtf file for trajectory output
     integer::m,l,maxl,acount,dumres,infoout
     character(len=8) :: atnum
     acount = 0
@@ -4931,18 +5022,18 @@ end do
        !if(protcoords(m,1)%species == 1) dumres = 1
        !if(protcoords(m,1)%species == 2) dumres = 2
        !if(dumres == 1) then
-       if(clnos(m) == clnos(g)) then
-          infoout = 100
-       else
-          infoout = protcoords(m,1)%species
-       end if
+       !if(clnos(m) == clnos(g)) then
+       !   infoout = 100
+       !else
+       !   infoout = protcoords(m,1)%species
+       !end if
 
-       
+
        do l = 1,maxl
           write(88,*) 'atom', acount, 'radius', 1.00000, 'name ',(2*protcoords(m,1)%species), &
                'resid ',protcoords(m,l)%type
           write(88,*) 'atom', acount+1, 'radius', 1.00000, 'name ',(2*protcoords(m,1)%species)-1,'resid ', &
-              protcoords(m,l)%type
+               protcoords(m,l)%type
           acount = acount+2
        end do
        !else if(dumres == 2) then
@@ -4971,253 +5062,8 @@ end do
 
   end subroutine pdbsetupalt
 
-
-
-
-
-
-
-
-  subroutine freesitescalc
-    integer :: m,l,g,f,clcount,clusterpop,bdir,maxlengthss,maxback,clustcount,a,content,onepop,z
-    integer :: acconn,cconn,atconn,tconn
-    integer,dimension(:),allocatable:: countoffree
-    logical :: clusyes,adjver,newcl
-    type(prottemp),dimension(:),allocatable :: tempcoord
-    integer,dimension(:),allocatable:: cllist,histcl!,mashist
-    integer :: oldcl,dum1,dum2,zzz,maxclus,normalisedsize,maxl
-    integer,dimension(:,:),allocatable::cb,bound
-    integer,dimension(:),allocatable::maxcluslist,concount
-    double precision::maxclusenergy,tryen
-    allocate(cb(nprotein,nprotein))
-    !allocate(clnos(nprotein))
-    allocate(tempcoord(maxlength))
-    allocate(cllist(nprotein))
-    allocate(histcl(nprotein))
-    allocate(bound(nprotein,maxlength))
-    allocate(concount(nprotein))
-allocate(countoffree(2*mtype))
-    !allocate(mashist(10))
-    maxclusenergy = 0.0d0
-tryen = 0.0d0
-    normalisedsize = 0
-    clcount = 0
-    clusterpop = 0
-    clustcount = 0
-    do m = 1,nprotein
-       clnos(m) = m
-       cllist(m) = 0
-       histcl(m) = 0
-       concount(m) =0
-       do a =1,maxlength
-          bound(m,a)=0
-          end do
-           end do
-
-           a = 1
-
-    do m = 1,nprotein
-       do g = 1,nprotein
-          cb(m,g) = 0
-       end do
-    end do
-
-
-
-
-
-
-
-
-
-    do m = 1,nprotein-1,1
-       maxback = chlen(m)
-       do g = m+1,nprotein,1
-          !if((g/=m) .and. (clnos(m) /= clnos(g))) then
-             maxlengthss = chlen(g)
-             do l = 1,maxback
-                tempcoord(l)%x = protcoords(m,l)%x
-                tempcoord(l)%y = protcoords(m,l)%y
-                tempcoord(l)%z = protcoords(m,l)%z
-                do f = 1,maxlengthss
-                   call adjacent(g,l,f,tempcoord,adjver,bdir)              
-                   if(adjver.eqv. .true.) then
-                      if(isbond .eqv. .true.) then
-                         cb(m,g) = 1
-                         cb(g,m) = 1
-bound(m,l) = 1
-bound(g,f) = 1                         
-if(interen(protcoords(m,l)%type,protcoords(g,f)%type) < 0.0) then
-
-                                 
-                            if(clnos(g) < clnos(m)) then
-                               oldcl = clnos(m)
-                               do zzz = 1,nprotein
-                                  if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
-                               end do
-                            else if(clnos(g)> clnos(m)) then
-                               oldcl =clnos(g)
-                               do zzz = 1,nprotein
-                                  if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
-                               end do
-                            end if
-                            clusyes = .true.
-                         end if
-                      end if
-                      if((bdir == bonddd(g,f)) .and. (-1.0*bdir == (bonddd(m,l))) .and. &
-                           (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0)) then
-tryen = tryen + (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)) 
-                      bound(m,l) = 1           
-                        bound(g,f) = 1
-                             
-                         cb(m,g) = 1
-                         cb(g,m) = 1
-                         if(clnos(g) < clnos(m)) then
-                            oldcl = clnos(m)
-                            do zzz = 1,nprotein
-                               if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
-                            end do
-                         else if(clnos(g)> clnos(m)) then
-                            oldcl =clnos(g)
-                            do zzz = 1,nprotein
-                               if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
-                            end do
-                         end if
-                         clusyes = .true.                 
-                      end if
-                   end if
-                end do
-             end do
-          !end if
-       end do
-    end do
-
-
-
-
-
-
-    write(6,*) 'initial energy',tryen
-
-
-call energy(.false.)
-
-    do g = 1,nprotein-nclients
-       do m = g,nprotein-nclients
-          if(clnos(m) ==g) then
-             histcl(g) = histcl(g) +1
-          end if
-       end do
-       !if(time>10000) write(6,*) 'hist', histcl(g)
-       normalisedsize =  normalisedsize + ((histcl(g))**2)
-    end do
-
-
-    !maxclus = maxval(histcl)
-
-
-    maxclus = 0
-    do g = 1,nprotein-nclients
-       if(histcl(g) > maxclus) then
-          maxclus = histcl(g)
-          content = g
-       end if
-    end do
-
-countoffree(:) = 0
-
-write(6,*) 'freesites COM',maxclus,content,dpcomclusterinit
-    do g = 1,nprotein-nclients,1
-       if(clnos(g) == content) then
-maxl = chlen(g)
-do l = 1,maxl,1
-if(bound(g,l) == 0) then
-call clusterdistribution(g,l)
-countoffree(protcoords(g,l)%type) = countoffree(protcoords(g,l)%type) + 1
-end if
-end do       
-else if(clnos(g) /= content) then
-maxl = chlen(g)
-do l = 1,maxl,1      
-if(bound(g,l) == 0) then
-  call bulkdistribution(g,l)
-countoffree(protcoords(g,l)%type+mtype) = countoffree(protcoords(g,l)%type+mtype) + 1
-end if
-end do
-       end if
-    end do
-    
-    write(6,*) 'unbound species in Cluster and Bulk',countoffree(:)
-
-
-  
-   
-    magiccontent = content
-
-  
-    deallocate(cllist)
-    !deallocate(clnos)
-    deallocate(tempcoord)
-    deallocate(histcl)
-    !write(6,*) 'CONTENTTTTTTTTT',content
-  end subroutine freesitescalc
-
-
-subroutine clusterdistribution(m,l)
-
-   integer,intent(in)::m,l
-    integer :: maxl,lx
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-          normaliser = normaliser + 1
-          !phasecount = phasecount+1
-          dx = min(abs(protcoords(m,l)%x - dpcomclusterinit%x), gridsize - abs(protcoords(m,l)%x - dpcomclusterinit%x))
-          dy = min(abs(protcoords(m,l)%y - dpcomclusterinit%y), gridsize - abs(protcoords(m,l)%y - dpcomclusterinit%y))
-          dz = min(abs(protcoords(m,l)%z - dpcomclusterinit%z), gridsize - abs(protcoords(m,l)%z - dpcomclusterinit%z))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-!write(6,*) 'type', protcoords(m,l)%type
-   freesites(protcoords(m,l)%type,lx+1) = freesites(protcoords(m,l)%type,lx+1)+1.0
-   freesites(protcoords(m,l)%type+mtype,lx+1) = freesites(protcoords(m,l)%type+mtype,lx+1)+1.0
-
-    
-     end subroutine clusterdistribution
-
-     subroutine bulkdistribution(m,l)
-
-   integer,intent(in)::m,l
-    integer :: maxl,lx
-    double precision :: dx,dy,dz
-    double precision :: delta
-
-
-!phasecountdoub = phasecountdoub+1
-
-          normaliser = normaliser + 1
-          !phasecount = phasecount+1
-          dx = min(abs(protcoords(m,l)%x - dpcomclusterinit%x), gridsize - abs(protcoords(m,l)%x - dpcomclusterinit%x))
-          dy = min(abs(protcoords(m,l)%y - dpcomclusterinit%y), gridsize - abs(protcoords(m,l)%y - dpcomclusterinit%y))
-          dz = min(abs(protcoords(m,l)%z - dpcomclusterinit%z), gridsize - abs(protcoords(m,l)%z - dpcomclusterinit%z))
-
-   delta = sqrt((dx**2)+(dy**2)+(dz**2))
-
-   lx = INT(delta/(1.0/binsize))
-
-
-   freesites(protcoords(m,l)%type,lx+1) = freesites(protcoords(m,l)%type,lx+1)+1.0
-   freesites(protcoords(m,l)%type+(2*mtype),lx+1) = freesites(protcoords(m,l)%type+(2*mtype),lx+1)+1.0
-
-    
-     end subroutine bulkdistribution
-
-  
   SUBROUTINE read_setup
-
+    !reads in data from setup file
     USE keywords
     !USE setup_vars
     !USE stats_vars
@@ -5226,7 +5072,7 @@ subroutine clusterdistribution(m,l)
     CHARACTER(LEN=20) :: keyword, option, argument
     CHARACTER(LEN=18), PARAMETER :: param_fmt1='(A16, 1PE20.10, A)'
     CHARACTER(LEN=16), PARAMETER :: param_fmt2='(A16, F16.10)'
-    INTEGER :: err, i, j,runtype,dummy2,dummytype,xl,f,dum,maxlengthstart
+    INTEGER :: err, i, j,runtype,dummy2,dummytype,xl,f,dum
     LOGICAL :: success
     double precision:: intra
 
@@ -5250,7 +5096,7 @@ subroutine clusterdistribution(m,l)
 
 
 
-    OPEN (UNIT=20, FILE='setupclient.txt', STATUS='OLD', IOSTAT=err)
+    OPEN (UNIT=20, FILE='interactionsetup.txt', STATUS='OLD', IOSTAT=err)
 
     IF (err /= 0) THEN
        WRITE (6, '(/, A, /)') 'ERROR: Could not find setup file.'
@@ -5290,10 +5136,8 @@ subroutine clusterdistribution(m,l)
 
        CASE ('TOTTYPES')
           CALL get_integer(nspecies)
-          call get_integer(maxlengthstart)
           allocate (speciespop(nspecies))
           allocate(specieslen(nspecies))
-          allocate(specieslinker(nspecies))
 
        CASE ('TOTCHAINS')
           !CALL get_integer(nprotein)
@@ -5302,55 +5146,29 @@ subroutine clusterdistribution(m,l)
        CASE ('NEWCHAIN')
           CALL get_integer(specieslen(runtype))
           CALL get_integer(speciespop(runtype))
-          call get_integer(specieslinker(runtype))   
+          call get_integer(dum)   
           do f = 1,specieslen(runtype)
              call get_integer(dummytype)
-             if((dummytype>mtype)) mtype = dummytype
+             if(dummytype>mtype) mtype = dummytype
           end do
           write(6,*) 'runtype',runtype,specieslen(runtype),speciespop(runtype)
           runtype = runtype + 1
-                vtype = vtype+1
-nclients = 0
-          nclientspecies = 1 !nspecies- mtype
-       
-deallocate(client)
-allocate(client(nspecies,maxlengthstart))
-
-       CASE ('CLIENT')
-          mtype = mtype +1
-        vtype = vtype+1
-          CALL get_integer(specieslen(vtype))
-          CALL get_integer(speciespop(vtype))
-          clientlength = specieslen(vtype)
-          client(vtype,1)%species = vtype
-          call get_integer(client(vtype,1)%linker)   
-          do f = 1,specieslen(vtype)
-             call get_integer(client(vtype,f)%type)
-             client(vtype,f)%linker = client(vtype,1)%linker
-             write(6,*) 'client details',client(vtype,f)%type
-                          !if(dummytype>mtype) mtype = dummytype
-          end do
-          nclients = nclients+speciespop(vtype)
-
-          write(6,*) 'runtype',vtype,specieslen(vtype),speciespop(vtype)
-          
-          
 
        CASE ('LATTICE_DIMENSIONS')
           CALL get_integer(gridsize)
 
 
-          allocate(interen(mtype-nclientspecies,mtype-nclientspecies))
-          allocate(interenergy(mtype-nclientspecies,mtype-nclientspecies))
-          allocate(intraenergy(mtype-nclientspecies,mtype-nclientspecies))
+          allocate(interen(mtype,mtype))
+          allocate(interenergy(mtype,mtype))
+          allocate(intraenergy(mtype,mtype))
           !allocate(tttt())
 
        CASE ('SIM_TIME')
           CALL get_integer(maxtime)
-          maxtime = maxtime*1000
+          maxtime = maxtime
        CASE ('EQUIB_TIME')
           CALL get_integer(equilib)
-          equilib = equilib*1000
+          equilib = equilib
        CASE ('RIGHTANGLE')
           !CALL get_integer(right)
 
@@ -5372,11 +5190,6 @@ allocate(client(nspecies,maxlengthstart))
        CASE ('DEBUGYES')
           CALL get_logical(debugyes)
 
-
-          
-       CASE ('FREEZE')
-          CALL get_integer(freezetime)
-          
           !CASE ('ISBOND')
           !CALL get_logical(isbond)
 
@@ -5390,20 +5203,22 @@ allocate(client(nspecies,maxlengthstart))
 
        CASE ('INTRAEN')
           CALL get_dp(intraen)
-          intraen = -ABS(intraen)
+          intraen = intraen
 
 
        CASE ('INTERACTION')
           call get_integer(xl)
           call get_dp(intra)
           write(6,*) 'mtype',mtype
-          do f = 1,mtype-nclientspecies
+          do f = 1,mtype
              call get_dp(interenergy(xl,f))
-             intraenergy(xl,f) = -abs(intra)
+             intraenergy(xl,f) = intra
              interenergy(xl,f) = -abs(interenergy(xl,f))
              call get_dp(interen(xl,f))
-             interen(xl,f) = -abs(interen(xl,f))
+             !interen(xl,f) = -abs(interen(xl,f))
           end do
+
+
 
        CASE ('CLROTATION')
           CALL get_logical(clr)
@@ -5423,8 +5238,8 @@ allocate(client(nspecies,maxlengthstart))
        CASE ('LINK')
           !call get_integer(linkerlength)
 
-CASE ('CLUSSTEP')
-CALL get_integer(steplength)
+       CASE ('CLUSSTEP')
+          CALL get_integer(steplength)
 
        CASE DEFAULT
           WRITE (6, '(/, 3A, /)') 'ERROR: Keyword not recognised in setup file: ', TRIM(keyword), '.'

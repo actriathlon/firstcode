@@ -25,11 +25,10 @@ real,dimension(:),allocatable :: variance,disp
   real,dimension(:,:),allocatable:: summing,vdist,freesites,clusdist
   logical :: exist,fail,finalfail,debugyes,film,isbond,clt,clr,noinfo,scalinginfo,nobonds,restart
   real::start,finish,midpoint,choose1
-  !integer::removethis,pivde
+        integer::totavail  
+!integer::removethis,pivde
   logical :: suffclust,settingup
         real(8),  parameter :: PI_8  = 4 * atan (1.0_8)
-double precision::averageROG,averageROGbulk,averageROGunb
-integer::noROGS,noROGSbulk,noROGSunb
   !change COM code for large protein in small box to stop pbc effect - similar to old version - but still
   !use dispacement from central bead
 
@@ -37,6 +36,9 @@ integer::noROGS,noROGSbulk,noROGSunb
 
   !Sort MSD outputs
 
+type availa
+        integer :: am,al
+end type availa
   
   type protein
      integer :: x,y,z,species,type,linker,am,al,bm,bl,cm,cl,dm,dl,em,el,fm,fl
@@ -65,7 +67,7 @@ end type lbond
   type(protein),dimension(:,:),allocatable :: protcoords,client
   type(centremass),dimension(:,:),allocatable :: com
    type(centremass) :: dpcomclusterinit
-
+type(availa),dimension(:),allocatable :: unboundlist
 
 sumsep = 0.0d0
 bulksumsep = 0.0d0
@@ -79,14 +81,14 @@ bBC = 0
 bABC = 0
 telacc=0
 telrej = 0
-
+totavail = 0
 
 allocate(totalbindevents(3))
 totalbindevents(:) = 0
   allocate(client(1,5))
   mtype = 0
-vtype=0        
-!noinfo = .false.
+  vtype=0
+        !noinfo = .false.
   call read_setup
 
  !call get_command_argument(1,commandread)
@@ -94,16 +96,23 @@ vtype=0
 
 
 
-  write(6,*) 'CLIENTINFO',clientlength,nclients!,freezetime 
+  write(6,*) 'CLIENTINFO',clientlength!,freezetime 
   allocate(sumclient(nclients,2*(clientlength+1)))
 allocate(unbound(nclients,clientlength))
+!allocate(unboundlist((nclients*clientlength)+(nprotein*maxlength)))
+!unboundlist(:)%am = 0
+!unboundlist(:)%al = 0
 unbound(:,:) = 0  
 sumclient(:,:) = 0
 suffclust = .false.
+write(6,*) 'speciespop',speciespop(:)
   nprotein = sum(speciespop)
   write(6,*) 'nprotein = ', nprotein
   maxlength = maxval(specieslen)
   write(6,*) 'maxlength =',maxlength
+
+
+
   open(21, file = '../movetagged.vtf', action = 'read')
   if(restart .eqv. .false.) then
      !open(23, file = 'initialtake2.xyz', action = 'read')
@@ -164,16 +173,8 @@ suffclust = .false.
      end if
   end if
 
-noROGS = 0
-averageROG = 0.0d0
-noROGSbulk = 0
-averageROGbulk = 0.0d0
-noROGSunb = 0
-averageROGunb = 0.0d0
- 
 
-
- 
+  
   reptforward = 0
   reptbackward = 0
   totrmsbrute = 0.0d0
@@ -248,13 +249,19 @@ open(161,file='dimens.dat',action='write')
   allocate(clnos(nprotein))
   allocate(vdist(4*clientlength,gridsize))
 allocate(clusdist(mtype,gridsize))
+allocate(unboundlist((nclients*clientlength)+(nprotein*maxlength)))
 
   phasecount = 0
 vdist(:,:) = 0
   visit(:,:) = 0
 !summing(:,:) = 0
 clusdist(:,:) = 0
-  
+ 
+unboundlist(:)%am = 0
+unboundlist(:)%al = 0
+
+
+ 
 binsize = 1
 
   N = maxlength
@@ -357,7 +364,7 @@ if(timebase == 3) call freesitescalc
 
      if((time > equilib) .and. (modulo(time,outputrate) == 0) .and. (scalinginfo .eqv. .true.)) then
         call length
-        !call radiusofgyration
+        call radiusofgyration
         if((noinfo .eqv. .false.) .and. (scalinginfo .eqv. .true.)) write(79,*) time-equilib,&
              runningaveEtE/((time-equilib)/outputrate),&
              runningaveROG/((time-equilib)/outputrate)
@@ -425,12 +432,7 @@ if(timebase == 3) call freesitescalc
 
 call cleanup
 
-open(1717,file='radiusofgclient.dat',action='write')
-        write(1717,*) averageROG/noROGS,averageROGbulk/noROGSbulk,averageROGunb/noROGSunb
-
-close(1717) 
-
- 
+  
   write(6,*) 'reject = ', reject
   write(6,*) 'successful =', successful
   !write(6,*) 1.0*successful/(reject + successful)
@@ -657,7 +659,7 @@ end if
     allocate(tbo(maxl))
     !return    
     rac = .true.
-deltaenergy = 0.0d0
+deltaenergy= 0.0d0
 
 
     dx = 0
@@ -778,7 +780,6 @@ do l =1,maxl
     call removeenergyintra(m,l,deltaenergy,tempcoord)
     call removeenergyinter(m,l,deltaenergy,tempcoord)
 
-
     do pr = 1,nprotein
        if(pr /= m) then
           maxback = chlen(pr)
@@ -803,10 +804,6 @@ do l =1,maxl
        goto 37
     end if
 
-!if(deltaenergy>0) then
-!write(6,*) 'deltaenergy',deltaenergy
-!call energy(.false.)
-!end if
 
 37  if (rac .eqv. .false.) then
        telrej = telrej + 1
@@ -936,7 +933,6 @@ end do
     double precision:: separation
     logical,dimension(clientlength)::clust
     integer,dimension(clientlength) :: attached
-integer :: kxz
 
     do a =1,clientlength
        clust(a) = .false.
@@ -1062,57 +1058,53 @@ call rdf(m,l)
          
       end do
       if(control > 1) then
-                maxl = chlen(m)
-                do kxz = 2,maxl,1
-                if((study(a,kxz-1) ==1) .and. (study(a,kxz) == 1)) then        
 
-                 dx = min(abs(protcoords(m,kxz-1)%x - protcoords(m,kxz)%x),gridsize-abs(protcoords(m,kxz-1)%x&
-                -protcoords(m,kxz)%x))
-                dy = min(abs(protcoords(m,kxz-1)%y - protcoords(m,kxz)%y),gridsize-abs(protcoords(m,kxz-1)%y&
-                -protcoords(m,kxz)%y))
-                dz = min(abs(protcoords(m,kxz-1)%z - protcoords(m,kxz)%z),gridsize-abs(protcoords(m,kxz-1)%z&
-                -protcoords(m,kxz)%z))
+         dx = min(abs(protcoords(m,1)%x - protcoords(m,2)%x),gridsize-abs(protcoords(m,1)%x&
+              -protcoords(m,2)%x))
+         dy = min(abs(protcoords(m,1)%y - protcoords(m,2)%y),gridsize-abs(protcoords(m,1)%y&
+              -protcoords(m,2)%y))
+         dz = min(abs(protcoords(m,1)%z - protcoords(m,2)%z),gridsize-abs(protcoords(m,1)%z&
+              -protcoords(m,2)%z))
 
 ! if(clientlength ==2) call rdftot(m)
 ! if((clientlength ==3) .and. (control == 3)) call rdftot(m)
 !  if((clientlength ==3) .and. (control == 2)) call rdfcomplex(m,control,attached)
          
          
-                 if(ANY(clust(:) .eqv. .true.)) then
+         if(ANY(clust(:) .eqv. .true.)) then
 
 
-                separation = sqrt(real(dx**2)+real(dy**2)+real(dz**2))
+            separation = sqrt(real(dx**2)+real(dy**2)+real(dz**2))
             
-                 lx = INT(separation/(1.0/binsize))
-                summing(2,lx) = summing(2,lx)+1
+            lx = INT(separation/(1.0/binsize))
+            summing(2,lx) = summing(2,lx)+1
             
-                 !do g = 1,clientlength,1
-                !   sumclient(a,g) = sumclient(a,g) + study(a,g)
-                !end do
-                sumclient(a,clientlength+1) =  sumclient(a,clientlength+1) + 1
+            !do g = 1,clientlength,1
+            !   sumclient(a,g) = sumclient(a,g) + study(a,g)
+            !end do
+            sumclient(a,clientlength+1) =  sumclient(a,clientlength+1) + 1
             
-                 sumsep = sumsep + separation
+            sumsep = sumsep + separation
             
-                else
+         else
             
             
-                separation = sqrt(real(dx**2)+real(dy**2)+real(dz**2))
+            separation = sqrt(real(dx**2)+real(dy**2)+real(dz**2))
             
-                lx = INT(separation/(1.0/binsize))
-                summing(1,lx) = summing(1,lx)+1
+            lx = INT(separation/(1.0/binsize))
+            summing(1,lx) = summing(1,lx)+1
             
-                !do g = 1,clientlength,1
-                !   sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
-                !end do
-                sumclient(a,2*(clientlength+1)) =  sumclient(a,2*(clientlength+1)) + 1
+            !do g = 1,clientlength,1
+            !   sumclient(a,g+clientlength+1) = sumclient(a,g+clientlength+1) + study(a,g)
+            !end do
+            sumclient(a,2*(clientlength+1)) =  sumclient(a,2*(clientlength+1)) + 1
             
-                 bulksumsep = bulksumsep + separation
+            bulksumsep = bulksumsep + separation
  
             
-                 end if
-                end if        
-                end do
- 
+         end if
+         
+         
   do g = 1,clientlength,1
 if(clust(g) .eqv. .true.) then             
   sumclient(a,g) = sumclient(a,g) + study(a,g)
@@ -1155,7 +1147,6 @@ end if
 
 
 if(control == 0) then
-call radiusofgyration(3)
 
 totalbindevents(3) = totalbindevents(3) + 1
 else if (control>0) then
@@ -1201,13 +1192,8 @@ end if
 
 
 if(control >0) then
-         if(ANY(clust(:) .eqv. .true.)) then
-                call rdfcluster(m,control,attached)
-                call radiusofgyration(1)
-else
-call radiusofgyration(2)
-end if  
- end if
+         if(ANY(clust(:) .eqv. .true.)) call rdfcluster(m,control,attached)
+   end if
 
       
    end do
@@ -1660,8 +1646,8 @@ protcoords(m,1)%species = protcoords(m,1)%type
   end do
 
      read(21,*) BIN
-        write(6,*) 'BIN',BIN
      read(21,*) BIN
+write(6,*) 'BIN',BIN
   
      do m = 1,nprotein-nclients,1
         read(21,*)  BIN,rx,ry,rz
@@ -1912,17 +1898,26 @@ end do
   end subroutine rotate
 
  subroutine pickmoves
-    integer:: scans,m,maxl,decide,l,a
+    integer:: scans,m,maxl,decide,l,a,nm
 
 scans = 1
 
     decide = int(ran2(seed)*12)+1
 
+
     if(decide <= 4) then
-       do a=1,maxlength
-       m =int(ran2(seed)*(nprotein))+1
-        maxl = chlen(m)
-       l = int(ran2(seed)*(maxl))+1
+       do a=1,clientlength
+
+       !nm =int(ran2(seed)*(totavail))+1
+
+!m = unboundlist(nm)%am
+!l = unboundlist(nm)%al
+nm =int(ran2(seed)*(nclients))+1
+
+m = nprotein-nclients+nm
+maxl = chlen(m)
+l = int(ran2(seed)*(clientlength))+1
+
        call vectorspin(m,l,maxl)
        end do
     end if
@@ -3149,9 +3144,9 @@ reacc = reacc +1
       
 15     continue
        
-               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
-               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+               dx = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+               dy = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
+               dz = nint((ran2(seed)-0.5)*(2*protcoords(m,1)%linker))
 
 
 
@@ -3687,18 +3682,21 @@ if(g/=m) then
 
 
   subroutine energy(init)
-    integer :: dx,dy,dz,m,l,f,g,bdir,delx,dely,delz,maxlengthss,maxl
+    integer :: dx,dy,dz,m,l,f,g,bdir,delx,dely,delz,maxlengthss,maxl,clength,a
     double precision :: initialenergy,olderenergy,dumoldenergy
     Type(prottemp),dimension(:),allocatable :: tempcoord
     integer,dimension(:),allocatable:: tbo
   !double precision,dimension(:),intent(inout)::chen
     logical :: adjver
     logical,intent(in)::init
+integer,dimension(:,:),allocatable :: unb
     initialenergy = 0.0d0
     !totalenergy = 0.0d0
     allocate(tempcoord(maxlength))
     allocate(tbo(maxlength))
+allocate(unb(nprotein,maxlength))
 
+unb(:,:) = 0
 
     if(init .eqv. .true.) then
        do m = 1,nprotein
@@ -3752,6 +3750,11 @@ if(g/=m) then
                          if(initialenergy < olderenergy) then
                             visit(m,l) = 1
                             visit(g,f) = 1
+                              !totavail = totavail + 1
+                               ! unboundlist(totavail)%am = m
+                               ! unboundlist(totavail)%al = l
+                               unb(m,l) = 1
+                                unb(g,f) = 1        
                             end if
                       end if
                    end do
@@ -3760,6 +3763,28 @@ if(g/=m) then
           end do
           call updatebondold(m,1,maxl,tempcoord)
        end do
+
+do m = 1,nprotein,1
+        maxl = chlen(m)
+        do l = 1,maxl,1
+                if(unb(m,l) == 0)then
+                        totavail = totavail + 1
+                        unboundlist(totavail)%am = m
+                        unboundlist(totavail)%al = l
+                end if
+        end do 
+end do
+
+
+         write(6,*) 'availablesite',totavail
+do a = 1,nclients,1
+        do clength = 1,clientlength,1
+                totavail = totavail + 1
+                unboundlist(totavail)%am = a+(nprotein-nclients)
+                unboundlist(totavail)%al = clength
+        end do
+end do
+
     end if
 
     if(init .eqv. .false.) then
@@ -3983,8 +4008,7 @@ chen(m)= 0.0d0
 
   end subroutine rms
 
-subroutine radiusofgyration(clusorbulk)
-        integer,intent(in)::clusorbulk
+subroutine radiusofgyration
     integer::m,l,maxl,nobeads
     double precision :: rog,totrog!,avex,avey,avez
 totrog = 0.0d0
@@ -3992,7 +4016,7 @@ nobeads = 0
 !avex = 0.0d0
 !avey = 0.0d0
 !avez = 0.0d0
-    do m = nprotein-nclients,nprotein,1
+    do m = 1,nprotein,1
         maxl = chlen(m)
 !do l = 1,maxl,1
 !avex = avex + protcoords(m,l)%x
@@ -4015,21 +4039,10 @@ nobeads = 0
        nobeads = nobeads+maxl
     end do
 
-if(clusorbulk == 1) then
-averageROG = averageROG + totrog
-noROGS = noROGS+1
-else if(clusorbulk == 2) then
-averageROGbulk = averageROGbulk + totrog
-noROGSbulk = noROGSbulk+1
-else if(clusorbulk == 3) then
-averageROGunb = averageROGunb + totrog
-noROGSunb = noROGSunb+1
-end if
-
     runningaveROG = runningaveROG + totrog
     polymerrog = polymerrog + (totrog/nprotein)
-    !if(noinfo .eqv. .false.) write(97,*) time-equilib, &
-    !     totrog/(nobeads),SQRT(totrog/(nobeads))
+    if(noinfo .eqv. .false.) write(97,*) time-equilib, &
+         totrog/(nobeads),SQRT(totrog/(nobeads))
 
   end subroutine radiusofgyration
   
@@ -5226,7 +5239,7 @@ subroutine clusterdistribution(m,l)
     CHARACTER(LEN=20) :: keyword, option, argument
     CHARACTER(LEN=18), PARAMETER :: param_fmt1='(A16, 1PE20.10, A)'
     CHARACTER(LEN=16), PARAMETER :: param_fmt2='(A16, F16.10)'
-    INTEGER :: err, i, j,runtype,dummy2,dummytype,xl,f,dum,maxlengthstart
+    INTEGER :: err, i,j,runtype,dummy2,dummytype,xl,f,dum,maxlengthstart,correct
     LOGICAL :: success
     double precision:: intra
 
@@ -5305,20 +5318,23 @@ subroutine clusterdistribution(m,l)
           call get_integer(specieslinker(runtype))   
           do f = 1,specieslen(runtype)
              call get_integer(dummytype)
-             if((dummytype>mtype)) mtype = dummytype
+             !if((dummytype>mtype) .and. (dummytype<3)) mtype = dummytype            
+        if(dummytype>mtype) mtype = dummytype
           end do
           write(6,*) 'runtype',runtype,specieslen(runtype),speciespop(runtype)
           runtype = runtype + 1
-                vtype = vtype+1
+        vtype=vtype+1
 nclients = 0
           nclientspecies = 1 !nspecies- mtype
-       
+!if(mtype>runtype) correct=-1
+
 deallocate(client)
 allocate(client(nspecies,maxlengthstart))
 
        CASE ('CLIENT')
           mtype = mtype +1
         vtype = vtype+1
+        write(6,*) 'client vtype',vtype
           CALL get_integer(specieslen(vtype))
           CALL get_integer(speciespop(vtype))
           clientlength = specieslen(vtype)
