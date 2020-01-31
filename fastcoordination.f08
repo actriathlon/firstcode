@@ -1,7 +1,3 @@
-!uses faster clustercount code, which has been tested- potentially worth
-!checking
-
-
 program move
 
   implicit none
@@ -17,6 +13,7 @@ program move
   integer :: seed,natoms,maxtime,reptbackward,reptforward,equilib,cltacc,cltatt
   integer :: successful,reject,maxlength1,maxlength2,q,d,u,sm,qt,ft,gt,scans
   integer:: rerej,reacc,nprotein1,nprotein2,nspecies,mtype,sumr1,sumr2,yl
+  integer::count_rate,count_max,start,finish,midpoint
   integer,dimension(:,:),allocatable :: bonddd
   integer,dimension(:),allocatable :: chlen,speciespop,specieslen
   double precision :: trackx,tracky,trackz,intraen,intdummy,totdire,rho,rr
@@ -25,7 +22,7 @@ program move
   real, external :: ran2
   real,dimension(:),allocatable :: variance,disp
   logical :: exist,fail,finalfail,debugyes,film,isbond,clt,clr,noinfo,scalinginfo,nobonds,restart
-  real::start,finish,midpoint,choose1,interesttest,realfinal
+  !real::start,finish,midpoint,choose1,interesttest,realfinal
   !integer::removethis,pivde
   logical :: suffclust
   real(8),  parameter :: PI_8  = 4 * atan (1.0_8)
@@ -61,7 +58,7 @@ program move
   type(protein),dimension(:,:),allocatable :: protcoords
   type(centremass),dimension(:,:),allocatable :: com
 
-  call CPU_TIME(start)
+     call system_clock(start,count_rate,count_max)
 
 
 
@@ -199,8 +196,8 @@ program move
      !open(67, file = 'move.vtf', action = 'write')
      open(88,file = 'movetagged.vtf',action='write')
   else if(restart .eqv. .true.) then
-     !open(67, file = 'move.vtf', access = 'append')
-     open(88, file = 'movetagged.vtf', access = 'append')
+     open(67, file = 'move.vtf', access = 'append')
+     !open(88, file = 'movetagged.vtf', access = 'append')
   end if
 
 
@@ -234,8 +231,6 @@ program move
   !sets the limit of the pivot move
 
 
-  call CPU_TIME(interesttest)
-  write(6,*) 'TIME FOR FIRST SECTION',interesttest-start
 
   write(6,*) 'foundation start'
   if(restart .eqv. .false.) then
@@ -287,16 +282,17 @@ program move
         else
            call pickmoves
         end if
-        call CPU_TIME(midpoint)
-        if((midpoint-start)> 201600) then
-           backtime = time
-           goto 93
-        end if
+     call system_clock(midpoint,count_rate,count_max)
+
+     if((real(modulo(midpoint-start,count_max))/count_rate)> 216000) then
+        backtime = time
+        goto 93
+     end if
 
      end do
 
 
-        if((modulo(time,outputrate/10) == 0) .and. (modulo(time,outputrate) /= 0)) then
+        if((modulo(time,outputrate/100) == 0) .and. (modulo(time,outputrate) /= 0)) then
         call strippedclustercount
         end if
      if (mod(time,outputrate) == 0) then
@@ -341,12 +337,13 @@ program move
         write(19,*) 'cluster translate',cltacc,cltatt,real(cltacc)/cltatt
         write(19,*) 'vector moves',roacc,roatt,real(roacc)/roatt   
      end if
-     call CPU_TIME(midpoint)
-     if((midpoint-start)> 201600) then
+          call system_clock(midpoint,count_rate,count_max)
+
+     if((real(modulo(midpoint-start,count_max))/count_rate)> 216000) then
         backtime = time
         goto 93
      end if
-     !write(6,*) 'sweep complete'
+!write(6,*) 'sweep complete'
   end do
 
 
@@ -359,9 +356,14 @@ program move
 
 93 if((film .eqv. .false.) .and. (scalinginfo .eqv. .false.)) call dataout
   write(6,*) 'deltax =',trackx, 'deltay =',tracky, 'deltaz =',trackz
-  call CPU_TIME(finish)
+
+
+     call system_clock(finish,count_rate,count_max)
+
   call dataoutrestart
-  !if(noinfo .eqv. .false.) write(13,*) (finish-start)
+  if(noinfo .eqv. .false.) write(13,*)real(modulo(finish-start,count_max))/count_rate
+ 
+ !if(noinfo .eqv. .false.) write(13,*) (finish-start)
   !write(6,*) 'TIME to FINISH',finish-start  
 
   !call error
@@ -428,9 +430,9 @@ program move
   end if
   !write(6,*) 'end'
 
-  call CPU_TIME(realfinal)
-  write(6,*) 'Very final time:',realfinal-finish
-  if(noinfo .eqv. .false.) write(13,*) (realfinal-start)
+  !call CPU_TIME(realfinal)
+  !write(6,*) 'Very final time:',realfinal-finish
+  !if(noinfo .eqv. .false.) write(13,*) (realfinal-start)
 
 contains
 
@@ -509,150 +511,6 @@ contains
 
   end subroutine phase
 
-  subroutine entropy(deltaenergy,tempcoord,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    Type(prottemp),dimension(:),intent(in) :: tempcoord
-    double precision::oldent,newent,sep1,sep2,dx,dy,dz
-    integer::maxl
-
-    maxl = chlen(m)
-    oldent = 0.0d0
-    newent = 0.0d0
-    if(l>1) then
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l-1)%x), gridsize -abs(protcoords(m,l)%x - protcoords(m,l-1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l-1)%y), gridsize -abs(protcoords(m,l)%y - protcoords(m,l-1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l-1)%z), gridsize -  abs(protcoords(m,l)%z - protcoords(m,l-1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-          
-          dx = min(abs(tempcoord(l)%x - protcoords(m,l-1)%x), gridsize -abs(tempcoord(l)%x - protcoords(m,l-1)%x))
-          dy = min(abs(tempcoord(l)%y - protcoords(m,l-1)%y), gridsize -abs(tempcoord(l)%y - protcoords(m,l-1)%y))
-          dz = min(abs(tempcoord(l)%z - protcoords(m,l-1)%z), gridsize -  abs(tempcoord(l)%z - protcoords(m,l-1)%z))
-
-          sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-    
-    oldent = oldent + entropycalc(sep1,m)
-    newent = newent +entropycalc(sep2,m)
-    end if
-
-    if(l<maxl) then
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l+1)%x), gridsize -abs(protcoords(m,l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l+1)%y), gridsize -abs(protcoords(m,l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l+1)%z), gridsize -  abs(protcoords(m,l)%z - protcoords(m,l+1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-          
-          dx = min(abs(tempcoord(l)%x - protcoords(m,l+1)%x), gridsize -abs(tempcoord(l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(tempcoord(l)%y - protcoords(m,l+1)%y), gridsize -abs(tempcoord(l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(tempcoord(l)%z - protcoords(m,l+1)%z), gridsize -  abs(tempcoord(l)%z - protcoords(m,l+1)%z))
-
-          sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-    
-    oldent = oldent + entropycalc(sep1,m)
-    newent = newent +entropycalc(sep2,m)
-    end if
-
-    deltaenergy = deltaenergy+(newent-oldent)
-    
-
-  end subroutine entropy
-
- double precision Function entropycalc(separ,m)
-    double precision, intent(in) :: separ
-        integer,intent(in)::m
-double precision :: Na
-Na = protcoords(m,1)%linker
- entropycalc = -1*((3*(separ**2)*kT)/(2*(Na**2)))
-  end Function entropycalc
-
-
-    subroutine entropyrep(deltaenergy,tempcoord,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    Type(prottemp),dimension(:),intent(in) :: tempcoord
-    double precision::oldent,newent,sep1,sep2,dx,dy,dz
-    integer::maxl,f!,h
-
-    maxl = chlen(m)
-    if(l == 1) then
-       !h = 2
-       f = maxl
-    else if(l==maxl) then
-       f = 2
-       !h = maxl-1
-    end if
-    oldent = 0.0d0
-    newent = 0.0d0
-
-          dx = min(abs(protcoords(m,f)%x - protcoords(m,f-1)%x), gridsize -abs(protcoords(m,f)%x - protcoords(m,f-1)%x))
-          dy = min(abs(protcoords(m,f)%y - protcoords(m,f-1)%y), gridsize -abs(protcoords(m,f)%y - protcoords(m,f-1)%y))
-          dz = min(abs(protcoords(m,f)%z - protcoords(m,f-1)%z), gridsize -  abs(protcoords(m,f)%z - protcoords(m,f-1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-          
-          dx = min(abs(tempcoord(l)%x - protcoords(m,l)%x), gridsize -abs(tempcoord(l)%x - protcoords(m,l)%x))
-          dy = min(abs(tempcoord(l)%y - protcoords(m,l)%y), gridsize -abs(tempcoord(l)%y - protcoords(m,l)%y))
-          dz = min(abs(tempcoord(l)%z - protcoords(m,l)%z), gridsize -  abs(tempcoord(l)%z - protcoords(m,l)%z))
-
-          sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-    
-    oldent = entropycalc(sep1,m)
-    newent = entropycalc(sep2,m)
-
-
-    deltaenergy = deltaenergy+(newent-oldent)
-    
-
-  end subroutine entropyrep
-
-    subroutine entropyinit(deltaenergy,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    double precision::sep1,dx,dy,dz
-    integer::maxl
-
-    maxl = chlen(m)
-    if(l ==maxl) return
-    
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l+1)%x), gridsize -abs(protcoords(m,l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l+1)%y), gridsize -abs(protcoords(m,l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l+1)%z), gridsize -  abs(protcoords(m,l)%z - protcoords(m,l+1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-
-    deltaenergy = deltaenergy + entropycalc(sep1,m)
-    
-
-  end subroutine entropyinit
-  
- subroutine entropyinit1(deltaenergy,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    double precision::sep1,dx,dy,dz
-    integer::maxl
-
-    maxl = chlen(m)
-    if(l ==maxl) return
-
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l+1)%x), gridsize-abs(protcoords(m,l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l+1)%y), gridsize-abs(protcoords(m,l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l+1)%z), gridsize -abs(protcoords(m,l)%z - protcoords(m,l+1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-
-    deltaenergy = deltaenergy + (2*entropycalc(sep1,m))
-
-
-  end subroutine entropyinit1
-
-
-  
   subroutine rdf(dpcomcluster)
     !subroutine to calculate the RDF of the beads from the centre of mass of the largest cluster  !
     type(rprot),intent(in) :: dpcomcluster
@@ -1062,6 +920,7 @@ Na = protcoords(m,1)%linker
     if((decide > 8) ) call clusterposition
 
 
+
     !if((modulo(time,maxtime/100) == 0)) then
     !write(29,*) (time-equilib)*scans, real(totrmsbrute)/nprotein
     !end if
@@ -1095,7 +954,7 @@ Na = protcoords(m,1)%linker
     !integer::fakex,fakey,fakez
     allocate(tempcoord(maxlength))
     allocate(tbo(maxlength))
-        
+    !return    
     rac = .true.
     m = int(ran2(seed)*nprotein)+1
 
@@ -1253,7 +1112,7 @@ Na = protcoords(m,1)%linker
     !if(fakex /= tempcoord(l)%x) write(6,*) 'x change'
     !if(fakey /= tempcoord(l)%y) write(6,*) 'y change'
     !if(fakez /= tempcoord(l)%z) write(6,*) 'z change'
-call entropy(deltaenergy,tempcoord,m,l)
+
 
 
     !if(NINT(deltaenergy) /= 0) write(6,*) 'pivot',deltaenergy
@@ -2340,7 +2199,7 @@ call entropy(deltaenergy,tempcoord,m,l)
     integer,dimension(:),allocatable::tbo
 
 
-!if(rept == 0) return
+
     t = time + 1
 
     !choose = -0.5
@@ -2462,7 +2321,7 @@ call entropy(deltaenergy,tempcoord,m,l)
 
        call reptationtype(m,1,deltaenergy,tempcoord,1)
 
-call entropyrep(deltaenergy,tempcoord,m,1)
+
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
 
@@ -2578,7 +2437,7 @@ call entropyrep(deltaenergy,tempcoord,m,1)
 
        call reptationtype(m,maxl,deltaenergy,tempcoord,-1)
 
-call entropyrep(deltaenergy,tempcoord,m,maxl)
+
 
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
@@ -3053,10 +2912,8 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              tempcoord(l)%y = protcoords(m,l)%y
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
-        call entropyinit1(initialenergy,m,l)
           end do
           do l = 1,maxl,1
-!call entropyinit(initialenergy,m,l)
              do f = 1,maxl
                 if(abs(f-l)>2) then
                    call adjacent(m,l,f,tempcoord,adjver,bdir)
@@ -3105,10 +2962,8 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              tempcoord(l)%y = protcoords(m,l)%y
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
-        call entropyinit(initialenergy,m,l)  
-        end do
+          end do
           do l = 1,maxl-3,1
-             !call entropyinit(initialenergy,m,l)
              do f = l+3,maxl
                 call adjacent(m,l,f,tempcoord,adjver,bdir)
                 if((adjver .eqv. .true.)) then

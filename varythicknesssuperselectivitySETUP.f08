@@ -3,27 +3,30 @@ program setup
 
 
   integer :: maxno,protno,seed,natoms,maxsize,maxtime,maxlength1,maxlength2
-  integer :: i,j,k,gridsize,nprotein1,nprotein2,nspecies
-  integer :: l,m,hold,z1,z2,z3,z4,z5,z6,control, n
-  integer :: nprotein,split,section,species
+  integer :: i,j,k,gridsize,nprotein1,nprotein2,nspecies,gridsizex
+  integer :: l,m,hold,control,time,t
+  integer :: nprotein,split,section,species,scans
   integer :: maxlength,g,xl,yl,zl,h,p
   real, external :: ran2
   real::x
   character(len = 10) :: commandread,commandread2
-  integer,dimension(:,:),allocatable :: master
-  integer,dimension(:),allocatable :: specieslen,speciespop
+  integer,dimension(:,:),allocatable :: master,bonddd
+  integer,dimension(:),allocatable :: specieslen,speciespop,link,chlen
   logical :: scalinginfo
    type protein
-      integer :: x,y,z,species,type
+      integer :: x,y,z,species,type,linker
    end type protein
 
-   
-  type(protein),dimension(:,:),allocatable :: protcoords
+     type rprot
+     real :: x,y,z
+  end type rprot
 
+  type(protein),dimension(:,:),allocatable :: protcoords
+!linkerlength = 7
 write(6,*) 'a'         
 
   !open(17, file = 'setup.txt', action = 'read')
-  open(19, file = 'initialtake2.xyz', action = 'write')
+  open(19, file = 'movetagged.vtf', action = 'write')
 ! write(6,*) seed,maxlength
 
 write(6,*) 'a'
@@ -33,9 +36,9 @@ maxlength = maxval(specieslen)
   write(6,*) 'speciespop',speciespop(1)
   nprotein = sum(speciespop)
   write(6,*) 'proteins',nprotein
-  write(19,*) nprotein
   allocate(protcoords(nprotein,maxlength))
-
+  allocate(chlen(nprotein))
+  allocate(bonddd(nprotein,maxlength))
   do h = 1,nspecies
      write(6,*) 'species length',specieslen(h)
      do p = 1,specieslen(h)
@@ -44,12 +47,11 @@ maxlength = maxval(specieslen)
      end do
   
   call foundation
-  !write(6,*) 'c'
+  call pdbsetup
 
-  write(19,*) ' '
-
+do time = 1,maxtime
   call positioning
-
+end do
      contains
 
 
@@ -58,30 +60,12 @@ maxlength = maxval(specieslen)
 
 
   
- subroutine initial
-   character(len = 10) :: BIN
-   read(17,*) BIN
-   read(17,*) BIN !seed
-   read(17,*) BIN
-   read(17,*) BIN !maxlength
-   read(17,*) BIN
-   read(17,*) nprotein
-   write(19,*) nprotein*maxlength
-  ! write(23,*) ' ' 
-   read(17,*) BIN
-   read(17,*) gridsize
-   natoms = gridsize**3
-   !write(23,*) natoms
-  ! write(23,*) ' '
-   read(17,*) BIN
-   read(17,*) maxtime
-      read(17,*) BIN
-   read(17,*) split
-   write(19,*) ' '
- end subroutine initial
 
  subroutine foundation
-   !type(protein),dimension(nprotein,maxlength) :: protcoords
+   integer::maxl,speciesselect
+        integer,dimension(:),allocatable::spcount
+   allocate(spcount(nspecies))
+   
    write(6,*) maxlength,nprotein
    do m = 1,nprotein
       do l = 1,maxlength
@@ -90,50 +74,160 @@ maxlength = maxval(specieslen)
     protcoords(m,l)%z = 0
       end do
    end do
-   
-   
- end subroutine foundation
- 
- subroutine positioning
-   integer :: gate,xbk,ybk,zbk,protpass,f,speciesselect,spcount1,spcount2,maxl
-   integer::maxback
-   Real:: t1,t2,t3,t4,t5,t6
-   integer,dimension(:),allocatable::spcount
-   allocate(spcount(nspecies))
+  
 
    do m = 1,nspecies
 spcount(m) = 0
       end do
+ 
+
+   do m = 1,nprotein
+
+
+32      speciesselect = int(ran2(seed)*nspecies)+1
+
+
+      maxl = specieslen(speciesselect)
+        chlen(m) = maxl
+
+      if(spcount(speciesselect) == speciespop(speciesselect)) goto 32
+
+        do l=1,maxl
+                protcoords(m,l)%species = speciesselect
+                protcoords(m,l)%type = master(speciesselect,l)
+                protcoords(m,1)%linker = link(speciesselect)
+        end do
+end do
+   
+ end subroutine foundation
+
+  subroutine bonddirection(tempbonddd)
+    integer,intent(inout) :: tempbonddd
+    integer :: xp,xn,yp,yn,zp,zn,chdir
+
+    chdir = int(ran2(seed)*6)+1
+
+
+    if(chdir == 1) tempbonddd = 1
+     if(chdir == 2) tempbonddd = -1
+    if(chdir == 3) tempbonddd = 2
+    if(chdir == 4) tempbonddd = -2
+    if(chdir == 5) tempbonddd = 3
+    if(chdir == 6) tempbonddd = -3
+
+  end subroutine bonddirection
+
+
+  subroutine dataout
+    integer::m,l,maxl,f,g,maxback,acount
+    type(rprot),dimension(:,:),allocatable :: bondposit
+    integer :: choice
+    allocate(bondposit(nprotein,maxlength))
+    !write(6,*) 'data'
+    t = time
+    choice = 19
+    write(choice,*) ' '
+    write(choice,*) 'timestep ', 'indexed'
+    write(choice,*) 'pbc', real(4*gridsize),real(4*gridsize),real(4*gridsize)
+    !write(67,*) ((nprotein1*maxlength1) + (nprotein2*maxlength2))
+    acount = 0
+
+    do m = 1,nprotein,1
+       maxl = chlen(m)
+       do l = 1,maxl,1
+          write(choice,*) acount,real(4*protcoords(m,l)%x),real(4*protcoords(m,l)%y),real(4*protcoords(m,l)%z)
+          acount = acount +1
+
+          bondposit(m,l)%x = real(protcoords(m,l)%x)
+          bondposit(m,l)%y = real(protcoords(m,l)%y)
+          bondposit(m,l)%z = real(protcoords(m,l)%z)
+
+          if(bonddd(m,l) == 1) bondposit(m,l)%x = modulo(bondposit(m,l)%x +0.5,real(gridsize))
+          if(bonddd(m,l) == -1) bondposit(m,l)%x = modulo(bondposit(m,l)%x -0.5,real(gridsize))
+          if(bonddd(m,l) == 2) bondposit(m,l)%y = modulo(bondposit(m,l)%y +0.5,real(gridsize))
+          if(bonddd(m,l) == -2) bondposit(m,l)%y = modulo(bondposit(m,l)%y -0.5,real(gridsize))
+          if(bonddd(m,l) == 3) bondposit(m,l)%z = modulo(bondposit(m,l)%z +0.5,real(gridsize))
+          if(bonddd(m,l) == -3) bondposit(m,l)%z = modulo(bondposit(m,l)%z -0.5,real(gridsize))
+
+
+
+
+          write(choice,*) acount, 4*bondposit(m,l)%x, 4*bondposit(m,l)%y, &
+               4*bondposit(m,l)%z
+
+71        continue
+          acount = acount + 1
+       end do
+    end do
+
+
+
+  end subroutine dataout
+
+
+
+  subroutine pdbsetup
+    integer::m,l,maxl,acount,dumres
+    character(len=8) :: atnum
+    acount = 0
+    write(19,*) 'atom ', 'default ', 'radius ', 1.00000, 'name ','C'
+    do m= 1,nprotein
+       maxl = chlen(m)
+       do l = 1,maxl
+          write(19,*) 'atom', acount, 'radius', 1.00000, 'name',(2*protcoords(m,1)%species), &
+               'resid ',protcoords(m,l)%type
+          write(19,*) 'atom', acount+1, 'radius', 1.00000, 'name',(2*protcoords(m,1)%species)-1,'resid ', &
+               protcoords(m,l)%type
+          acount = acount+2
+       end do
+
+    end do
+    write(19,*) ' '
+    acount = 0
+    do m= 1,nprotein
+       maxl = chlen(m)
+       do l = 1,maxl-1
+          write(atnum,'(i7)') acount
+          write(19,*) 'bond', adjustr(atnum)//':',acount+2
+          write(19,*) 'bond', adjustr(atnum)//':',acount+1
+          acount = acount+2
+       end do
+       write(atnum,'(i7)') acount
+       write(19,*) 'bond', adjustr(atnum)//':',acount+1
+       acount = acount +2
+    end do
+
+  end subroutine pdbsetup
+
+
+
+
+
+ subroutine positioning
+   integer :: gate,xbk,ybk,zbk,protpass,f,speciesselect,spcount1,spcount2,maxl
+   integer::maxback,dx,dy,dz
+   Real:: t1,t2,t3,t4,t5,t6
+   integer,dimension(:),allocatable::spcount
+   allocate(spcount(nspecies))
 
    
-   !write(6,*) 'start position'
    do m = 1,nprotein
       hold = m
-      !write(6,*) nprotein1,nprotein2
-      
       control = 1
       gate = 1
       protpass = 1
 47    if (protpass ==1) then
          continue
       end if
-      ! write(6,*) 'd'
-
-32      speciesselect = int(ran2(seed)*nspecies)+1
-
       
-      maxl = specieslen(speciesselect)
+      maxl = specieslen(protcoords(m,1)%species)
 
-
-      if(spcount(speciesselect) == speciespop(speciesselect)) goto 32
-      
       
 35    if (gate == 1) then
          l = 1
-         i = int(ran2(seed)*gridsize)+1
+         i = int(ran2(seed)*gridsizex)+1
          j = int(ran2(seed)*gridsize)+1
          k = int(ran2(seed)*gridsize)+1
-         !write(6,*) 'e'
          if (hold /= 1) then
             do g = 1, hold-1
                maxback = specieslen(protcoords(g,1)%species)
@@ -149,19 +243,13 @@ spcount(m) = 0
          else
             continue
          end if
-         !xl = int((i*10)/split)-1
-         !yl = int(((j*10)/split) -1)*N +1
-         !zl = int(((k*10)/split) -1)*(N**2)
-         !section = xl + yl + zl
-         !write(6,*) 'f'
+         
          protcoords(m,l)%x = i
          protcoords(m,l)%y = j
          protcoords(m,l)%z = k
-         protcoords(m,l)%species = speciesselect
-         protcoords(m,l)%type = master(speciesselect,l)
-         !protcoords(m,l)%location = section
-         !write(19,*) 'O' ,    protcoords(m,l)%x,    protcoords(m,l)%y,  &
-              !protcoords(m,l)%z
+
+      call bonddirection(bonddd(m,l))
+
          
          do l = 2,maxl
 
@@ -169,105 +257,58 @@ spcount(m) = 0
             ybk = protcoords(m,l-1)%y
             zbk = protcoords(m,l-1)%z
 
-            z1=1
-            z2=1
-            z3=1
-            z4=1
-            z5=1
-            z6 = 1
-            n=6
-            
+
             control = 1
-            x = ran2(seed)
+
             
 15          if (control ==1) then
 
-               i = xbk
-               j = ybk
-               k = zbk
+
+               dx = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+               dy = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+               dz = nint((ran2(seed)-0.5)*((2*protcoords(m,1)%linker)+1))
+
+               if(sqrt(real((dx**2) + (dy**2) + (dz**2))) > protcoords(m,1)%linker) goto 15
                
-               t1 = real(z1)/n
-               t2 = real(z1+z2)/n
-               t3 = real(z1 + z2 +z3)/n
-               t4 = real(z1 + z2 + z3 + z4)/n
-               t5 = real(z1 + z2 + z3 + z4 + z5)/n
-               t6 = real(z1 + z2 + z3 + z4 + z5 + z6)/n
-               if(x<= t1 .AND. z1 == 1) then
-                  i = modulo(i,gridsize)+1
-                  z1=0
-               else if (x> t1 .AND. x<=t2 .AND. z2 == 1) then
-                  i = modulo(i - 2,gridsize)+1
-                  z2=0
-                  
-               else if (x> t2 .AND. x<=t3 .AND. z3 == 1) then
-                  j = modulo(j,gridsize) +1
-                  z3=0
-               else if (x> t3 .AND. x<=t4 .AND. z4 == 1) then
-                  
-                  j = modulo(j -2,gridsize)+1
-                  z4=0
-               else if (x> t4 .AND. x<=t5 .AND. z5 == 1) then
-                  k  = modulo(k,gridsize)+1
-                  z5=0
-               else if (x> t5 .AND. x<=1.0 .AND. z6 == 1) then
-                   
-                  k = modulo(k-2,gridsize)+1
-                  z6=0
-               end if
+
+                     i = modulo(xbk+dx-1,gridsizex)+1
+                     j = modulo(ybk +dy-1,gridsize)+1
+                     k  = modulo(zbk+dz-1,gridsize)+1
+
                do g = 1, hold-1
                maxback = specieslen(protcoords(g,1)%species)
                   do f = 1,maxback
                      if (i == protcoords(g,f)%x .and. j == protcoords(g,f)%y &
                           .and. k == protcoords(g,f)%z) then
-                        n=n-1
-                        if (n == 0) then
-                           goto 47
-                        else
                            goto 15
                         end if
-                     end if
                   end do
                end do
 
                do f = 1,maxl
                   if (i == protcoords(hold,f)%x .and. j == protcoords(hold,f)%y &
                        .and. k == protcoords(hold,f)%z) then
-                     n=n-1
-                     if (n == 0) then
-                        goto 47
-                     else
                         goto 15
-                     end if
                   end if
                end do
-               !end if
-               !xl = int((i*10)/split)-1
-               !yl = 1+int(((j*10)/split) -1)*N 
-               !zl = int(((k*10)/split) -1)*(N**2)
-               !section = xl + yl + zl
-               !write(6,*) 'f'
+
                protcoords(m,l)%x = i
                protcoords(m,l)%y = j
                protcoords(m,l)%z = k
-               protcoords(m,l)%species = speciesselect
-               protcoords(m,l)%type = master(speciesselect,l)
-               !protcoords(m,l)%location = section               
+       
           
             end if
              end do
           end if
-          !end if
 
-                       write(19,*) protcoords(m,1)%species ,    protcoords(m,1)%x,    protcoords(m,1)%y, &
-                  protcoords(m,1)%z, protcoords(m,1)%type,maxl
+do l = 1,maxl,1
+              call bonddirection(bonddd(m,l))
+end do
 
-          do l = 2,maxl
-             write(19,*) protcoords(m,l)%species ,    protcoords(m,l)%x,    protcoords(m,l)%y, &
-                  protcoords(m,l)%z, protcoords(m,l)%type
-          end do
-
-           spcount(speciesselect) = spcount(speciesselect) +1 
        end do
+
+        call dataout
+
      end subroutine positioning
      
 
@@ -281,7 +322,7 @@ SUBROUTINE read_setup
    CHARACTER(LEN=20) :: keyword, option, argument
    CHARACTER(LEN=18), PARAMETER :: param_fmt1='(A16, 1PE20.10, A)'
    CHARACTER(LEN=16), PARAMETER :: param_fmt2='(A16, F16.10)'
-   INTEGER :: err, i, j,runtype,typevar,dum
+   INTEGER :: err, i, j,runtype,typevar
    LOGICAL :: success
    !integer,dimension(:,:),intent(out),allocatable:: master
    !integer,dimension(:),intent(out),allocatable:: specieslen
@@ -292,7 +333,7 @@ SUBROUTINE read_setup
    !  S.T.A.T. stands for short-time averaged temperature.
 
 
-  
+  !scalinginfo = .true.
 
    !seed = 6                      !seed for random number generation
    !maxlength = 20              !number of beads in chain
@@ -334,8 +375,7 @@ SUBROUTINE read_setup
          CALL get_integer(seed)
          seed = -ABS(seed)
 
-          CASE ('SCALEINFO')
-             call get_logical(scalinginfo)         
+         
       !CASE ('CHAIN_LENGTH')
          !CALL get_integer(maxlength1)
 
@@ -353,25 +393,31 @@ SUBROUTINE read_setup
       CASE ('TOTTYPES')
          CALL get_integer(nspecies)
          call get_integer(maxlength)
-!maxlength = 15
+   write(6,*) 'bizarre',maxlength,nspecies
+      !maxlength = 15
 
-          write(6,*) 'nspeciess',nspecies,maxlength
-      CASE ('TOTCHAINS')
-            !CALL get_integer(nprotein)
+      CASE ('SCALEINFO')
+         call get_logical(scalinginfo)
+
+         !write(6,*) 'nspeciess',nspecies,maxlength
+       CASE ('TOTCHAINS')
+write(6,*) 'nspecies',nspecies,maxlength          
+!CALL get_integer(nprotein)
           allocate(master(nspecies,maxlength))
           allocate(specieslen(nspecies))
           allocate(speciespop(nspecies))
+      allocate(link(nspecies))    
+       
 
-          
-    runtype = 1
+   runtype = 1
        CASE ('NEWCHAIN')
           CALL get_integer(specieslen(runtype))
           if(specieslen(runtype)>maxlength) then
              write(6,*) 'FAIL: maxlength is too small--------------------'
-             exit
+             STOP 9
           end if
           CALL get_integer(speciespop(runtype))
-!call get_integer(dum)
+call get_integer(link(runtype)) 
                     write(6,*) 'scalinginfo = ',scalinginfo
              if(scalinginfo .eqv. .false.) then
           write(6,*) 'runtype',runtype,specieslen(runtype),speciespop(runtype)
@@ -386,12 +432,20 @@ SUBROUTINE read_setup
                 write(6,*) 'runtype',runtype,specieslen(runtype),speciespop(runtype)
              end do
              runtype = runtype+1
-             end if
+end if
+write(6,*) 'runtype =',runtype
+if(runtype > nspecies+1) then
+write(6,*) 'tottypes is too small'
+STOP 9
+end if
+
+          
+
 
           
        CASE ('LATTICE_DIMENSIONS')
          CALL get_integer(gridsize)
-                  
+         CALL get_integer(gridsizex) 
       CASE ('SIM_TIME')
          CALL get_integer(maxtime)
          
@@ -442,10 +496,10 @@ CASE ('INTERACTION')
           CASE ('NOINFO')
 
 
-
 CASE ('RESTART')
 
 CASE ('LINK')
+!call get_integer(linkerlength)
 
 CASE ('CLUSSTEP')
 

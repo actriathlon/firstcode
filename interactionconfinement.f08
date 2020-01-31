@@ -6,7 +6,7 @@ program move
 
   implicit none
 
-  double precision :: totalenergy,kT,totrmsbrute!,randomz
+  double precision :: totalenergy,kT,totrmsbrute,totalwallenergy!,randomz
   double precision :: totdisp,totchainlength,avechainlength,choose2
   double precision :: actualchainlength,random,totiso
   double precision :: runningaveROG,runningaveEtE,chainlength,sumdebug,testdummy,polymerrog,polymerl
@@ -20,7 +20,7 @@ program move
   integer,dimension(:,:),allocatable :: bonddd
   integer,dimension(:),allocatable :: chlen,speciespop,specieslen
   double precision :: trackx,tracky,trackz,intraen,intdummy,totdire,rho,rr
-  double precision,dimension(:),allocatable::chen
+  double precision,dimension(:),allocatable::chen,wallenergy
   double precision,dimension(:,:),allocatable :: interenergy,interen,intraenergy,summing
   real, external :: ran2
   real,dimension(:),allocatable :: variance,disp
@@ -259,8 +259,9 @@ program move
   end do
   write(6,*) 'b'
   if(restart .eqv. .false.) call clustercount2
+  
 
-  actualchainlength = 0.0
+actualchainlength = 0.0
   do timebase = 1,maxtime,1
      if(restart .eqv. .false.) then
         time = timebase
@@ -270,20 +271,16 @@ program move
      if(time < 0) time = abs(time)
      fail = .false.
 
-     !if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
-     !   call dataout
-     !end if
-     !write(6,*) 'c'
-     do qt = 1,1000
+
+do qt = 1,1000
         if((nobonds .eqv. .true.) .and. (clt .eqv. .false.)) then
            choose1 = ran2(seed)-0.5
            if(choose1 <=0.0) call positioning
            if((choose1>0.0) .and. (rept ==1)) call reptation
            if((choose1>0.0) .and. (rept ==0)) call positioning
-           !if((modulo(time,maxtime/100) == 0)) then
+!if((modulo(time,maxtime/100) == 0)) then
            !write(29,*) (time-equilib), real(totrmsbrute/nprotein)
            !end if
-
         else
            call pickmoves
         end if
@@ -295,12 +292,11 @@ program move
 
      end do
 
-
         if((modulo(time,outputrate/10) == 0) .and. (modulo(time,outputrate) /= 0)) then
         call strippedclustercount
         end if
      if (mod(time,outputrate) == 0) then
-        if(noinfo .eqv. .false.)  write(93,*) time,totalenergy
+        if(noinfo .eqv. .false.)  write(93,*) time,totalenergy,totalwallenergy
      end if
      if(modulo(time,outputrate) == 0 .and. (scalinginfo .eqv. .false.)) then 
         !call strippedclustercount
@@ -533,8 +529,8 @@ contains
           sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
 
     
-    oldent = oldent + entropycalc(sep1,m)
-    newent = newent +entropycalc(sep2,m)
+    oldent = oldent + entropycalc(sep1)
+    newent = newent +entropycalc(sep2)
     end if
 
     if(l<maxl) then
@@ -551,8 +547,8 @@ contains
           sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
 
     
-    oldent = oldent + entropycalc(sep1,m)
-    newent = newent +entropycalc(sep2,m)
+    oldent = oldent + entropycalc(sep1)
+    newent = newent +entropycalc(sep2)
     end if
 
     deltaenergy = deltaenergy+(newent-oldent)
@@ -560,13 +556,10 @@ contains
 
   end subroutine entropy
 
- double precision Function entropycalc(separ,m)
+ double precision Function Entropycalc(separ)
     double precision, intent(in) :: separ
-        integer,intent(in)::m
-double precision :: Na
-Na = protcoords(m,1)%linker
- entropycalc = -1*((3*(separ**2)*kT)/(2*(Na**2)))
-  end Function entropycalc
+ Entropycalc = -((separ**2)-(5*separ)-1.5)
+  end Function Entropycalc
 
 
     subroutine entropyrep(deltaenergy,tempcoord,m,l)
@@ -600,8 +593,8 @@ Na = protcoords(m,1)%linker
           sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
 
     
-    oldent = entropycalc(sep1,m)
-    newent = entropycalc(sep2,m)
+    oldent = entropycalc(sep1)
+    newent = entropycalc(sep2)
 
 
     deltaenergy = deltaenergy+(newent-oldent)
@@ -625,7 +618,7 @@ Na = protcoords(m,1)%linker
           sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
 
 
-    deltaenergy = deltaenergy + entropycalc(sep1,m)
+    deltaenergy = deltaenergy + entropycalc(sep1)
     
 
   end subroutine entropyinit
@@ -646,7 +639,7 @@ Na = protcoords(m,1)%linker
           sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
 
 
-    deltaenergy = deltaenergy + (2*entropycalc(sep1,m))
+    deltaenergy = deltaenergy + (2*entropycalc(sep1))
 
 
   end subroutine entropyinit1
@@ -718,7 +711,6 @@ Na = protcoords(m,1)%linker
     logical :: adjver
     allocate(tbo(maxl))
     allocate(tempcoord(maxl))
-
     roatt = roatt + 1   
     !write(6,*) maxl,maxlength1,maxlength2,protcoords(m,1)%species
     !do a = 1,nprotein*maxlength
@@ -899,6 +891,17 @@ Na = protcoords(m,1)%linker
        end if
     end if
 
+
+
+if((protcoords(m,l)%z == gridsize) .and. (bonddd(m,l) == 3)) deltaenergy=deltaenergy-wallenergy(protcoords(m,l)%type)
+if((protcoords(m,l)%z == 1) .and. (bonddd(m,l) == -3))deltaenergy=deltaenergy-wallenergy(protcoords(m,l)%type)
+if((protcoords(m,l)%z == gridsize) .and. (tbo(l) == 3))deltaenergy=deltaenergy+wallenergy(protcoords(m,l)%type)
+if((protcoords(m,l)%z == 1) .and. (tbo(l) == -3))deltaenergy=deltaenergy+wallenergy(protcoords(m,l)%type)
+
+
+
+
+
 82  continue
 
 
@@ -1048,7 +1051,7 @@ Na = protcoords(m,1)%linker
     !return
     !end if
     !write(6,*) 'start loop',decide
-
+!return
     if(decide <= 4) then
        do a=1,maxlength
           m =int(ran2(seed)*(nprotein))+1
@@ -1060,6 +1063,7 @@ Na = protcoords(m,1)%linker
     if((decide > 4) .and. (decide <= 6) ) call reptation
     if((decide > 6) .and. (decide <= 8)) call positioning
     if((decide > 8) ) call clusterposition
+
 
 
     !if((modulo(time,maxtime/100) == 0)) then
@@ -1082,6 +1086,35 @@ Na = protcoords(m,1)%linker
   end Function Energydecision
 
 
+subroutine removebondwalls(m,l,deltaenergy)
+    integer,intent(in)::m,l
+    double precision,intent(inout)::deltaenergy
+   
+       
+if((protcoords(m,l)%z == gridsize) .and. (bonddd(m,l)==3)) then
+deltaenergy = deltaenergy - wallenergy(protcoords(m,l)%type)
+else if((protcoords(m,l)%z == 1) .and. (bonddd(m,l)==-3)) then
+deltaenergy = deltaenergy - wallenergy(protcoords(m,l)%type)
+end if
+
+end subroutine removebondwalls
+
+
+subroutine formbondwalls(m,l,deltaenergy,tbo,tempcoord)
+    integer,intent(in)::m,l
+    double precision,intent(inout)::deltaenergy
+    type(prottemp),dimension(:),intent(inout)::tempcoord
+    integer,dimension(:),allocatable::tbo
+
+
+if((tempcoord(l)%z == gridsize) .and. (tbo(l)==3)) then
+deltaenergy = deltaenergy + wallenergy(protcoords(m,l)%type)
+else if((tempcoord(l)%z == 1) .and. (tbo(l)==-3)) then
+deltaenergy = deltaenergy + wallenergy(protcoords(m,l)%type)
+end if
+
+end subroutine formbondwalls
+
 
   subroutine positioning
     !displaces a bead by 0 or +/- 1 in x,y or z direction
@@ -1095,7 +1128,9 @@ Na = protcoords(m,1)%linker
     !integer::fakex,fakey,fakez
     allocate(tempcoord(maxlength))
     allocate(tbo(maxlength))
-        
+       
+
+!return 
     rac = .true.
     m = int(ran2(seed)*nprotein)+1
 
@@ -1154,8 +1189,11 @@ Na = protcoords(m,1)%linker
 
     tempcoord(l)%x = modulo(protcoords(m,l)%x+dx-1,gridsize)+1
     tempcoord(l)%y = modulo(protcoords(m,l)%y+dy-1,gridsize)+1
-    tempcoord(l)%z = modulo(protcoords(m,l)%z+dz-1,gridsize)+1
-
+    tempcoord(l)%z = protcoords(m,l)%z+dz-1
+        if((tempcoord(l)%z<1) .or. (tempcoord(l)%z >gridsize)) then
+        rac = .false.
+        goto 37
+        end if
 
     
     if(l>1) then
@@ -1225,6 +1263,9 @@ Na = protcoords(m,1)%linker
     call removeenergyintra(m,l,deltaenergy,tempcoord)
     call removeenergyinter(m,l,deltaenergy,tempcoord)
 
+        call removebondwalls(m,l,deltaenergy)
+
+
     do str = 1,l-3,1
        call adjacent(m,l,str,tempcoord,adjver,bdir)
        if((adjver.eqv. .true.)) then
@@ -1253,7 +1294,11 @@ Na = protcoords(m,1)%linker
     !if(fakex /= tempcoord(l)%x) write(6,*) 'x change'
     !if(fakey /= tempcoord(l)%y) write(6,*) 'y change'
     !if(fakez /= tempcoord(l)%z) write(6,*) 'z change'
-call entropy(deltaenergy,tempcoord,m,l)
+
+call formbondwalls(m,l,deltaenergy,tbo,tempcoord)
+
+
+!call entropy(deltaenergy,tempcoord,m,l)
 
 
     !if(NINT(deltaenergy) /= 0) write(6,*) 'pivot',deltaenergy
@@ -2381,7 +2426,11 @@ call entropy(deltaenergy,tempcoord,m,l)
 
        tempcoord(1)%x = modulo(protcoords(m,1)%x + dx-1,gridsize)+1
        tempcoord(1)%y = modulo(protcoords(m,1)%y + dy-1,gridsize)+1
-       tempcoord(1)%z = modulo(protcoords(m,1)%z + dz-1,gridsize)+1
+       tempcoord(1)%z =protcoords(m,1)%z + dz
+        if((tempcoord(1)%z <1) .or. (tempcoord(1)%z>gridsize)) then
+        reptcont = .false.
+        goto 83
+        end if
 
        dx = min(abs(tempcoord(1)%x - protcoords(m,2)%x),gridsize-abs(tempcoord(1)%x &
             - protcoords(m,2)%x)) 
@@ -2459,10 +2508,14 @@ call entropy(deltaenergy,tempcoord,m,l)
 
        !section to adjust for change in types
 
+        call formbondwalls(m,1,deltaenergy,tbo,tempcoord)
+        call removebondwalls(m,maxl,deltaenergy)
+
+
 
        call reptationtype(m,1,deltaenergy,tempcoord,1)
 
-call entropyrep(deltaenergy,tempcoord,m,1)
+!call entropyrep(deltaenergy,tempcoord,m,1)
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
 
@@ -2499,7 +2552,16 @@ call entropyrep(deltaenergy,tempcoord,m,1)
 
        tempcoord(maxl)%x = modulo(protcoords(m,maxl)%x + dx-1,gridsize)+1
        tempcoord(maxl)%y = modulo(protcoords(m,maxl)%y + dy-1,gridsize)+1
-       tempcoord(maxl)%z = modulo(protcoords(m,maxl)%z + dz-1,gridsize)+1
+       tempcoord(maxl)%z = protcoords(m,maxl)%z + dz
+
+
+   if((tempcoord(maxl)%z <1) .or. (tempcoord(maxl)%z>gridsize)) then
+        reptcont = .false.
+        goto 83
+        end if
+
+
+
 
        dx = min(abs(tempcoord(maxl)%x - protcoords(m,maxl-1)%x),gridsize-abs(tempcoord(maxl)%x &
             - protcoords(m,maxl-1)%x)) 
@@ -2578,7 +2640,12 @@ call entropyrep(deltaenergy,tempcoord,m,1)
 
        call reptationtype(m,maxl,deltaenergy,tempcoord,-1)
 
-call entropyrep(deltaenergy,tempcoord,m,maxl)
+        call formbondwalls(m,maxl,deltaenergy,tbo,tempcoord)
+        call removebondwalls(m,1,deltaenergy)
+
+
+
+!call entropyrep(deltaenergy,tempcoord,m,maxl)
 
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
@@ -2753,6 +2820,16 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     double precision,intent(inout)::deltaenergy
     type(prottemp),dimension(:),intent(inout)::tempcoord
     integer :: g,f,l,rangel,rangeh,maxl,del2,buzz
+
+
+
+!if((protcoords(m,l)%z == gridsize) .and. (bonddd(m,l) == 3)) then
+!deltaenergy = deltaenergy - wallenergy(protcoords(m,l)%type)
+!deltaenergy = deltaenergy + wallenergy(protcoords(m,l+del)%type)
+!else if(protcoords(m,l)%z == 1) .and. (bonddd(m,l) == -3)) then
+!deltaenergy = deltaenergy - wallenergy(protcoords(m,l)%type)
+!deltaenergy = deltaenergy + wallenergy(protcoords(m,l+del)%type)
+!end if
 
 
     maxl = chlen(m)
@@ -2958,8 +3035,20 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              end if
           end if
        end if
+
+if((protcoords(m,l)%z == gridsize) .and. (bonddd(m,l) == 3)) then
+deltaenergy = deltaenergy - wallenergy(protcoords(m,l)%type)
+deltaenergy = deltaenergy + wallenergy(protcoords(m,l+del2)%type)
+else if((protcoords(m,l)%z == 1) .and. (bonddd(m,l) == -3)) then
+deltaenergy = deltaenergy - wallenergy(protcoords(m,l)%type)
+deltaenergy = deltaenergy + wallenergy(protcoords(m,l+del2)%type)
+end if
+
     end do
-  end subroutine reptationtype
+ 
+
+
+ end subroutine reptationtype
 
   subroutine bonddirection(tempbonddd)
     !select a random direction for bond vector to point in
@@ -3024,7 +3113,7 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     !totalenergy = 0.0d0
     allocate(tempcoord(maxlength))
     allocate(tbo(maxlength))
-
+totalwallenergy = 0.0d0
 
     if(init .eqv. .true.) then
        do m = 1,nprotein
@@ -3053,10 +3142,15 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              tempcoord(l)%y = protcoords(m,l)%y
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
-        call entropyinit1(initialenergy,m,l)
+dumoldenergy = initialenergy
+call formbondwalls(m,l,initialenergy,tbo,tempcoord)
+call formbondwalls(m,l,initialenergy,tbo,tempcoord)
+
+  totalwallenergy = totalwallenergy + (initialenergy-dumoldenergy)
+
+      !call entropyinit1(initialenergy,m,l)
           end do
           do l = 1,maxl,1
-!call entropyinit(initialenergy,m,l)
              do f = 1,maxl
                 if(abs(f-l)>2) then
                    call adjacent(m,l,f,tempcoord,adjver,bdir)
@@ -3105,10 +3199,15 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              tempcoord(l)%y = protcoords(m,l)%y
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
-        call entropyinit(initialenergy,m,l)  
+
+        dumoldenergy = initialenergy
+        call formbondwalls(m,l,initialenergy,tbo,tempcoord)
+totalwallenergy = totalwallenergy + (initialenergy-dumoldenergy)
+
+
+        !call entropyinit(initialenergy,m,l)  
         end do
           do l = 1,maxl-3,1
-             !call entropyinit(initialenergy,m,l)
              do f = l+3,maxl
                 call adjacent(m,l,f,tempcoord,adjver,bdir)
                 if((adjver .eqv. .true.)) then
@@ -3138,11 +3237,12 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     end if
 
 
-    if(init .eqv. .true.) initialenergy = initialenergy/2
+    if(init .eqv. .true.) initialenergy = (initialenergy/2) 
     if((time > 0) .and. (nint(initialenergy) /= nint(totalenergy))) then
        write(6,*) 'energyfail',totalenergy,initialenergy,time
        finalfail = .true.
     end if
+       !write(6,*) '-----',totalenergy,initialenergy,time
 
     if(init .eqv. .true.) totalenergy = initialenergy
 
@@ -3173,8 +3273,8 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
        goto 31
     end if
 
-    dely = tempory(ch1)%y - protcoords(pr,ch2)%y
-    if((abs(dely) == 1) .or.(abs(dely) == (gridsize - 1))) then
+    dely = tempory(ch1)%y - protcoords(pr,ch2)%y  
+  if((abs(dely) == 1) .or.(abs(dely) == (gridsize - 1))) then
        dy = 1
        bdir = 2*dely
     else if(dely == 0) then
@@ -3186,6 +3286,15 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     end if
 
     delz = tempory(ch1)%z - protcoords(pr,ch2)%z
+if((tempory(ch1)%z == gridsize) .and. (protcoords(pr,ch2)%z == 1)) then
+adjver = .false.
+goto 31
+end if
+if((tempory(ch1)%z == 1) .and. (protcoords(pr,ch2)%z == gridsize)) then
+adjver = .false.
+goto 31
+end if
+
     if((abs(delz) == 1) .or. (abs(delz) == (gridsize -1))) then
        dz = 1
        bdir = 3*delz
@@ -3601,10 +3710,10 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     type(centremass),dimension(:),allocatable:: tcom
     integer,dimension(:),intent(inout) ::cllist
     integer,dimension(:,:),intent(inout) ::cb
-    integer :: dx,dy,dz,vv,rvv,a,moved
+    integer :: dx,dy,dz,vv,rvv,a,moved,l,maxl
     type(prottemp),dimension(:,:),allocatable :: tempcluscoord
     integer,dimension(:,:),allocatable::ctbo
-    double precision :: clusen,direction
+    double precision :: clusen,direction,cenergy
     logical :: moveallow
     allocate(tempcluscoord(nprotein,maxlength))
     allocate(ctbo(nprotein,maxlength))
@@ -3614,6 +3723,9 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     direction = ran2(seed)
     cltatt = cltatt + 1
     moveallow = .true.
+        cenergy = 0.0d0
+
+!steplength = 0
     if(direction <= 1.0/6) then
        dx = steplength
        dy = 0
@@ -3649,6 +3761,22 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     !write(6,*) 'info',dx,dy,dz
     call clusremove(cllist,clsize,tempcluscoord,cl)
     !write(6,*) 'corresponding info',tempcluscoord(464,6)%x,tempcluscoord(464,6)%y,tempcluscoord(464,6)%z
+
+if((moved == 5) .or. (moved == 6)) then
+
+do rvv = 1,clsize
+vv = cllist(rvv)
+
+maxl = chlen(vv)
+do l = 1,maxl,1
+if((protcoords(vv,l)%z == gridsize) .and. (bonddd(vv,l) == 3)) then
+cenergy = cenergy - wallenergy(protcoords(vv,l)%type)
+else if((protcoords(vv,l)%z == 1) .and. (bonddd(vv,l) == -3)) then
+cenergy = cenergy - wallenergy(protcoords(vv,l)%type)
+end if
+end do
+end do
+end if
 
     if(steplength ==1) then
        if(clsize<(nprotein/4)) then
@@ -3688,15 +3816,34 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     clusen = 0.0
 
 
+if((moved == 5) .or. (moved == 6)) then
+
+       do rvv = 1,clsize
+          vv = cllist(rvv)
+maxl = chlen(vv)
+do l = 1,maxl,1
+if((tempcluscoord(vv,l)%z == gridsize) .and. (ctbo(vv,l) == 3)) then
+cenergy = cenergy + wallenergy(protcoords(vv,l)%type)
+else if((tempcluscoord(vv,l)%z == 1) .and. (ctbo(vv,l) == -3)) then
+cenergy = cenergy + wallenergy(protcoords(vv,l)%type)
+end if
+end do
+end do
+end if
+
+
     call clusterenergy(tempcluscoord,clusen,m,ctbo,clsize,cllist,cl)
 
 
     if(int(clusen) == 0) then
+       if(Energydecision(cenergy) .eqv. .true.) then
+          totalenergy = totalenergy + cenergy
        call updatecluspos(tempcluscoord,ctbo,tcom,cllist,clsize)
        call updateclusbonds(clsize,cllist,cl,tempcluscoord)
        !call energy(.true.)
        cltacc = cltacc + 1
-    end if
+        end if 
+   end if
 
 
   end subroutine clustertranslation
@@ -3822,6 +3969,7 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
                 tempcluscoord(m,l)%fl = protcoords(m,l)%fl
              end if
           end if
+
 
 
        end do
@@ -4080,7 +4228,12 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     do b =1,maxl
        tempcluscoord(chainno,b)%x = modulo(protcoords(chainno,b)%x + delx-1,gridsize)+1
        tempcluscoord(chainno,b)%y = modulo(protcoords(chainno,b)%y + dely-1,gridsize)+1
-       tempcluscoord(chainno,b)%z = modulo(protcoords(chainno,b)%z + delz-1,gridsize)+1
+       tempcluscoord(chainno,b)%z = protcoords(chainno,b)%z + delz
+!if((tempcluscoord(chainno,b)%z>gridsize) .or. (tempcluscoord(chainno,b)%z<1)) then
+!moveallow = .false.
+!return
+!end if
+
        ctbo(chainno,b) = bonddd(chainno,b)
 
 
@@ -4109,7 +4262,11 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
     do b =1,maxl
        tempcluscoord(chainno,b)%x = modulo(protcoords(chainno,b)%x + delx-1,gridsize)+1
        tempcluscoord(chainno,b)%y = modulo(protcoords(chainno,b)%y + dely-1,gridsize)+1
-       tempcluscoord(chainno,b)%z = modulo(protcoords(chainno,b)%z + delz-1,gridsize)+1
+       tempcluscoord(chainno,b)%z = protcoords(chainno,b)%z + delz
+if((tempcluscoord(chainno,b)%z>gridsize).or.(tempcluscoord(chainno,b)%z<1)) then
+        clusmove = .false.
+        goto 31
+end if
        ctbo(chainno,b) = bonddd(chainno,b)
 
        do pr = 1,nprotein
@@ -4186,6 +4343,11 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
        end do
     else if(moved == 5) then
        do l = 1,maxl
+ if(protcoords(m,l)%z == gridsize) then
+        clusmove = .false.
+        return
+        end if
+
           if(protcoords(m,l)%em /=0) then
              if(ANY(cllist .eq. protcoords(m,l)%em)) then
                 continue
@@ -4197,6 +4359,11 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
        end do
     else if(moved == 6) then
        do l = 1,maxl
+ if(protcoords(m,l)%z == 1) then
+        clusmove = .false.
+        return
+        end if
+
           if(protcoords(m,l)%fm /=0) then
              if(ANY(cllist .eq. protcoords(m,l)%fm)) then
                 continue
@@ -5596,7 +5763,14 @@ correlationcluster(m) = 1
           allocate(interen(mtype,mtype))
           allocate(interenergy(mtype,mtype))
           allocate(intraenergy(mtype,mtype))
-          !allocate(tttt())
+          allocate(wallenergy(mtype))          
+
+
+        CASE ('WALL')
+        do f = 1,mtype
+                call get_dp(wallenergy(mtype))
+        end do
+!allocate(tttt())
 
        CASE ('SIM_TIME')
           CALL get_integer(maxtime)

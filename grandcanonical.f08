@@ -1,7 +1,3 @@
-!uses faster clustercount code, which has been tested- potentially worth
-!checking
-
-
 program move
 
   implicit none
@@ -258,7 +254,7 @@ program move
      com(2,qt)%z = com(1,qt)%z
   end do
   write(6,*) 'b'
-  if(restart .eqv. .false.) call clustercount2
+  if(restart .eqv. .false.) call clustercount
 
   actualchainlength = 0.0
   do timebase = 1,maxtime,1
@@ -305,8 +301,7 @@ program move
      if(modulo(time,outputrate) == 0 .and. (scalinginfo .eqv. .false.)) then 
         !call strippedclustercount
         call energy(.false.)
-        !call clustercount
-        call clustercount2
+        call clustercount
      end if
 
      if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
@@ -509,150 +504,6 @@ contains
 
   end subroutine phase
 
-  subroutine entropy(deltaenergy,tempcoord,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    Type(prottemp),dimension(:),intent(in) :: tempcoord
-    double precision::oldent,newent,sep1,sep2,dx,dy,dz
-    integer::maxl
-
-    maxl = chlen(m)
-    oldent = 0.0d0
-    newent = 0.0d0
-    if(l>1) then
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l-1)%x), gridsize -abs(protcoords(m,l)%x - protcoords(m,l-1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l-1)%y), gridsize -abs(protcoords(m,l)%y - protcoords(m,l-1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l-1)%z), gridsize -  abs(protcoords(m,l)%z - protcoords(m,l-1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-          
-          dx = min(abs(tempcoord(l)%x - protcoords(m,l-1)%x), gridsize -abs(tempcoord(l)%x - protcoords(m,l-1)%x))
-          dy = min(abs(tempcoord(l)%y - protcoords(m,l-1)%y), gridsize -abs(tempcoord(l)%y - protcoords(m,l-1)%y))
-          dz = min(abs(tempcoord(l)%z - protcoords(m,l-1)%z), gridsize -  abs(tempcoord(l)%z - protcoords(m,l-1)%z))
-
-          sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-    
-    oldent = oldent + entropycalc(sep1,m)
-    newent = newent +entropycalc(sep2,m)
-    end if
-
-    if(l<maxl) then
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l+1)%x), gridsize -abs(protcoords(m,l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l+1)%y), gridsize -abs(protcoords(m,l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l+1)%z), gridsize -  abs(protcoords(m,l)%z - protcoords(m,l+1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-          
-          dx = min(abs(tempcoord(l)%x - protcoords(m,l+1)%x), gridsize -abs(tempcoord(l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(tempcoord(l)%y - protcoords(m,l+1)%y), gridsize -abs(tempcoord(l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(tempcoord(l)%z - protcoords(m,l+1)%z), gridsize -  abs(tempcoord(l)%z - protcoords(m,l+1)%z))
-
-          sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-    
-    oldent = oldent + entropycalc(sep1,m)
-    newent = newent +entropycalc(sep2,m)
-    end if
-
-    deltaenergy = deltaenergy+(newent-oldent)
-    
-
-  end subroutine entropy
-
- double precision Function entropycalc(separ,m)
-    double precision, intent(in) :: separ
-        integer,intent(in)::m
-double precision :: Na
-Na = protcoords(m,1)%linker
- entropycalc = -1*((3*(separ**2)*kT)/(2*(Na**2)))
-  end Function entropycalc
-
-
-    subroutine entropyrep(deltaenergy,tempcoord,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    Type(prottemp),dimension(:),intent(in) :: tempcoord
-    double precision::oldent,newent,sep1,sep2,dx,dy,dz
-    integer::maxl,f!,h
-
-    maxl = chlen(m)
-    if(l == 1) then
-       !h = 2
-       f = maxl
-    else if(l==maxl) then
-       f = 2
-       !h = maxl-1
-    end if
-    oldent = 0.0d0
-    newent = 0.0d0
-
-          dx = min(abs(protcoords(m,f)%x - protcoords(m,f-1)%x), gridsize -abs(protcoords(m,f)%x - protcoords(m,f-1)%x))
-          dy = min(abs(protcoords(m,f)%y - protcoords(m,f-1)%y), gridsize -abs(protcoords(m,f)%y - protcoords(m,f-1)%y))
-          dz = min(abs(protcoords(m,f)%z - protcoords(m,f-1)%z), gridsize -  abs(protcoords(m,f)%z - protcoords(m,f-1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-          
-          dx = min(abs(tempcoord(l)%x - protcoords(m,l)%x), gridsize -abs(tempcoord(l)%x - protcoords(m,l)%x))
-          dy = min(abs(tempcoord(l)%y - protcoords(m,l)%y), gridsize -abs(tempcoord(l)%y - protcoords(m,l)%y))
-          dz = min(abs(tempcoord(l)%z - protcoords(m,l)%z), gridsize -  abs(tempcoord(l)%z - protcoords(m,l)%z))
-
-          sep2 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-    
-    oldent = entropycalc(sep1,m)
-    newent = entropycalc(sep2,m)
-
-
-    deltaenergy = deltaenergy+(newent-oldent)
-    
-
-  end subroutine entropyrep
-
-    subroutine entropyinit(deltaenergy,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    double precision::sep1,dx,dy,dz
-    integer::maxl
-
-    maxl = chlen(m)
-    if(l ==maxl) return
-    
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l+1)%x), gridsize -abs(protcoords(m,l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l+1)%y), gridsize -abs(protcoords(m,l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l+1)%z), gridsize -  abs(protcoords(m,l)%z - protcoords(m,l+1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-
-    deltaenergy = deltaenergy + entropycalc(sep1,m)
-    
-
-  end subroutine entropyinit
-  
- subroutine entropyinit1(deltaenergy,m,l)
-    double precision,intent(inout) ::deltaenergy
-    integer,intent(in)::m,l
-    double precision::sep1,dx,dy,dz
-    integer::maxl
-
-    maxl = chlen(m)
-    if(l ==maxl) return
-
-          dx = min(abs(protcoords(m,l)%x - protcoords(m,l+1)%x), gridsize-abs(protcoords(m,l)%x - protcoords(m,l+1)%x))
-          dy = min(abs(protcoords(m,l)%y - protcoords(m,l+1)%y), gridsize-abs(protcoords(m,l)%y - protcoords(m,l+1)%y))
-          dz = min(abs(protcoords(m,l)%z - protcoords(m,l+1)%z), gridsize -abs(protcoords(m,l)%z - protcoords(m,l+1)%z))
-
-          sep1 = sqrt((dx**2)+(dy**2)+(dz**2))
-
-
-    deltaenergy = deltaenergy + (2*entropycalc(sep1,m))
-
-
-  end subroutine entropyinit1
-
-
-  
   subroutine rdf(dpcomcluster)
     !subroutine to calculate the RDF of the beads from the centre of mass of the largest cluster  !
     type(rprot),intent(in) :: dpcomcluster
@@ -1062,6 +913,7 @@ Na = protcoords(m,1)%linker
     if((decide > 8) ) call clusterposition
 
 
+
     !if((modulo(time,maxtime/100) == 0)) then
     !write(29,*) (time-equilib)*scans, real(totrmsbrute)/nprotein
     !end if
@@ -1095,7 +947,7 @@ Na = protcoords(m,1)%linker
     !integer::fakex,fakey,fakez
     allocate(tempcoord(maxlength))
     allocate(tbo(maxlength))
-        
+    !return    
     rac = .true.
     m = int(ran2(seed)*nprotein)+1
 
@@ -1253,7 +1105,7 @@ Na = protcoords(m,1)%linker
     !if(fakex /= tempcoord(l)%x) write(6,*) 'x change'
     !if(fakey /= tempcoord(l)%y) write(6,*) 'y change'
     !if(fakez /= tempcoord(l)%z) write(6,*) 'z change'
-call entropy(deltaenergy,tempcoord,m,l)
+
 
 
     !if(NINT(deltaenergy) /= 0) write(6,*) 'pivot',deltaenergy
@@ -2340,7 +2192,7 @@ call entropy(deltaenergy,tempcoord,m,l)
     integer,dimension(:),allocatable::tbo
 
 
-!if(rept == 0) return
+
     t = time + 1
 
     !choose = -0.5
@@ -2462,7 +2314,7 @@ call entropy(deltaenergy,tempcoord,m,l)
 
        call reptationtype(m,1,deltaenergy,tempcoord,1)
 
-call entropyrep(deltaenergy,tempcoord,m,1)
+
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
 
@@ -2578,7 +2430,7 @@ call entropyrep(deltaenergy,tempcoord,m,1)
 
        call reptationtype(m,maxl,deltaenergy,tempcoord,-1)
 
-call entropyrep(deltaenergy,tempcoord,m,maxl)
+
 
 
        if(Energydecision(deltaenergy) .eqv. .true.) then
@@ -3053,10 +2905,8 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              tempcoord(l)%y = protcoords(m,l)%y
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
-        call entropyinit1(initialenergy,m,l)
           end do
           do l = 1,maxl,1
-!call entropyinit(initialenergy,m,l)
              do f = 1,maxl
                 if(abs(f-l)>2) then
                    call adjacent(m,l,f,tempcoord,adjver,bdir)
@@ -3105,10 +2955,8 @@ call entropyrep(deltaenergy,tempcoord,m,maxl)
              tempcoord(l)%y = protcoords(m,l)%y
              tempcoord(l)%z = protcoords(m,l)%z
              tbo(l) = bonddd(m,l)
-        call entropyinit(initialenergy,m,l)  
-        end do
+          end do
           do l = 1,maxl-3,1
-             !call entropyinit(initialenergy,m,l)
              do f = l+3,maxl
                 call adjacent(m,l,f,tempcoord,adjver,bdir)
                 if((adjver .eqv. .true.)) then
@@ -4808,7 +4656,7 @@ allocate(cb(nprotein,nprotein))
     allocate(maxcluslist(maxclus))
 
     z = 1
-    
+    atconn= 0
     do m = 1,nprotein
        if(clnos(m) == content)then
           maxcluslist(z) = m
@@ -4828,266 +4676,6 @@ allocate(cb(nprotein,nprotein))
     !deallocate(tempcoord)
     deallocate(histcl)
   end subroutine strippedclustercount
-
-
-
-
-
-
-  subroutine clustercount2
-!subroutine that allocates all chains to clusters and finds the largest cluster for analysis
-    integer :: m,l,g,f,clcount,clusterpop,bdir,maxlengthss,maxback,clustcount,a,content,onepop,z
-    integer :: acconn,cconn,atconn,tconn
-    integer,dimension(:),allocatable:: clnos
-    logical :: clusyes,adjver,newcl,bound
-    type(prottemp),dimension(:),allocatable :: tempcoord
-    integer,dimension(:),allocatable:: cllist,histcl!,mashist
-    integer :: oldcl,dum1,dum2,zzz,maxclus,normalisedsize
-    integer,dimension(:,:),allocatable::cb,conn
-    integer,dimension(:),allocatable::maxcluslist,concount,correlationone,correlationcluster
-    double precision::maxclusenergy
-!real :: time1,time2
-    allocate(cb(nprotein,nprotein))
-    allocate(clnos(nprotein))
-    allocate(tempcoord(maxlength))
-    allocate(cllist(nprotein))
-    allocate(histcl(nprotein))
-    allocate(conn(nprotein,maxlength))
-    allocate(concount(nprotein))
-    allocate(correlationone(nprotein))
-    allocate(correlationcluster(nprotein))
-    correlationone(:) = 0
-    correlationcluster(:) = 0
-    !allocate(mashist(10))
-    maxclusenergy = 0.0d0
-    normalisedsize = 0
-    clcount = 0
-    clusterpop = 0
-    clustcount = 0
-    do m = 1,nprotein
-       clnos(m) = m
-       cllist(m) = 0
-       histcl(m) = 0
-       concount(m) =0
-       do a =1,maxlength
-          conn(m,a)=0
-       end do
-    end do
-
-    a = 1
-
-    do m = 1,nprotein
-       do g = 1,nprotein
-          cb(m,g) = 0
-       end do
-    end do
-
-
-!call CPU_TIME(time1)
-
-
-do m = 1,nprotein-1
-       maxback = chlen(m)
-       do l = 1,maxback
-          bound = .false.
-          if(bonddd(m,l) ==1) then
-             if((protcoords(m,l)%am /= 0) .and. (bonddd(protcoords(m,l)%am,protcoords(m,l)%al) == -1)) then
-                bound = .true.
-                g = protcoords(m,l)%am
-                f = protcoords(m,l)%al
-             end if
-          else if  (bonddd(m,l) ==-1) then
-             if((protcoords(m,l)%bm /= 0) .and. (bonddd(protcoords(m,l)%bm,protcoords(m,l)%bl) == 1)) then
-                bound = .true.
-                g = protcoords(m,l)%bm
-                f = protcoords(m,l)%bl
-             end if
-          else if  (bonddd(m,l) ==2) then
-             if((protcoords(m,l)%cm /= 0) .and. (bonddd(protcoords(m,l)%cm,protcoords(m,l)%cl) == -2)) then
-                bound = .true.
-                g = protcoords(m,l)%cm
-                f = protcoords(m,l)%cl
-             end if
-          else if  (bonddd(m,l) ==-2) then
-             if((protcoords(m,l)%dm /= 0) .and. (bonddd(protcoords(m,l)%dm,protcoords(m,l)%dl) == 2)) then
-                bound = .true.
-                g = protcoords(m,l)%dm
-                f = protcoords(m,l)%dl
-             end if
-          else if  (bonddd(m,l) ==3) then
-             if((protcoords(m,l)%em /= 0) .and. (bonddd(protcoords(m,l)%em,protcoords(m,l)%el) == -3)) then
-                bound = .true.
-                g = protcoords(m,l)%em
-                f = protcoords(m,l)%el
-             end if
-          else if  (bonddd(m,l) ==-3) then
-             if((protcoords(m,l)%fm /= 0) .and. (bonddd(protcoords(m,l)%fm,protcoords(m,l)%fl) == 3)) then
-                bound = .true.
-                g = protcoords(m,l)%fm
-                f = protcoords(m,l)%fl
-             end if
-          end if
-          
-          if((bound .eqv. .true.) .and. (g>m)) then
-
-                        if (interenergy(protcoords(g,f)%type,protcoords(m,l)%type)  < 0.0) then
-
-if(m == 1) correlationone(g) = 1
-                      
-                      if(any(conn(m,:) .eq. g)) then
-                         goto 65
-                      else
-                         concount(m) = concount(m) + 1
-                         conn(m,concount(m)) = g
-                      end if
-65                    continue
-
-                      if(any(conn(g,:) .eq. m)) then
-                         goto 85
-                      else
-                         concount(g) = concount(g) + 1
-                         conn(g,concount(g)) = m
-                      end if
-85                    continue
-
-                      cb(m,g) = 1
-                      cb(g,m) = 1
-                      if(clnos(g) < clnos(m)) then
-                         oldcl = clnos(m)
-                         do zzz = 1,nprotein
-                            if(clnos(zzz) == oldcl) clnos(zzz) = clnos(g)
-                         end do
-                      else if(clnos(g)> clnos(m)) then
-                         oldcl =clnos(g)
-                         do zzz = 1,nprotein
-                            if(clnos(zzz) == oldcl) clnos(zzz) = clnos(m)
-                         end do
-                      end if
-                      clusyes = .true.                 
-                   end if
-                end if
-             end do
-          end do
-        
-
-!call CPU_TIME(time2)
-
-    do m = 1,nprotein
-       if(clnos(m) /=m) then
-          clusterpop = clusterpop + 1
-          if(ANY(cllist(:) .eq. clnos(m))) then
-             continue
-          else
-             clustcount = clustcount + 1
-             cllist(a) = clnos(m)
-             a = a+1
-          end if
-       end if
-    end do
-
-
-    if(clustcount /= 0 .and.  (time > equilib)) then
-       avecluspop = avecluspop + clusterpop
-       aveclusnumber = aveclusnumber + clustcount
-    end if
-
-    clusterpop = clusterpop + clustcount
-
-    do g = 1,nprotein
-       do m = g,nprotein
-          if(clnos(m) ==g) then
-             histcl(g) = histcl(g) +1
-          end if
-       end do
-       !if(time>10000) write(6,*) 'hist', histcl(g)
-       normalisedsize =  normalisedsize + ((histcl(g))**2)
-    end do
-
-
-    !maxclus = maxval(histcl)
-
-
-    maxclus = 0
-    do g = 1,nprotein
-       if(histcl(g) > maxclus) then
-          maxclus = histcl(g)
-          content = g
-       end if
-    end do
-    allocate(maxcluslist(maxclus))
-
-    z = 1
-    atconn= 0
-    do m = 1,nprotein
-       if(protcoords(m,1)%species==1) atconn = atconn+concount(m)
-       if(clnos(m) == content)then
-          maxcluslist(z) = m
-          z = z+1
-correlationcluster(m) = 1
-       end if
-    end do
-
-    cconn =0
-    acconn =0
-
-    do m = 1,maxclus   
-       g = maxcluslist(m)
-       cconn = cconn + concount(g)
-       if(protcoords(g,1)%species ==1) acconn = acconn+concount(g)
-       maxclusenergy = maxclusenergy + chen(g)
-    end do
-
-    tconn=sum(concount(:))
-
-    if((maxclus >10) .and. (suffclust .eqv. .false.)) then
-       suffclust = .true.
-       call pdbsetupalt
-    end if
-    !write(6,*) 'maxcl',maxclus
-    !do g = 1,10,1
-    !do m = 1,nprotein
-    !if((histcl(m) > (((g-1)/10.0)*(maxclus))) .and. (histcl(m) <= ((g/10.0)*maxclus))) then
-    !mashist(g) = mashist(g) + histcl(m)**2
-    !end if
-    !end do
-    !write(38,*) time, (g/10.0)*(maxclus),mashist(g)
-    !end do
-
-    ! write(6,*) 'tconn',tconn,'atconn',atconn,'acconn',acconn,'cconn',cconn,maxclus
-    onepop = 0
-    do m = 1,maxclus
-       g = maxcluslist(m)
-       if(protcoords(g,1)%species ==1) onepop = onepop+1
-    end do
-
-    if(restart .eqv. .true.) then
-       do m = 1,nprotein
-          if(histcl(m)/=0) write(38,*) time,histcl(m),histcl(m)**2
-       end do
-    end if
-
-    !if(noinfo .eqv. .false.) then
-    !if(clustcount /= 0) write(6,*) time,clustcount, 'cluster!'
-    if(clustcount /= 0) write(82,*) time,clustcount, clusterpop, real(clusterpop)/clustcount &
-         , real((normalisedsize) +(nprotein-clusterpop))/nprotein,maxclus,onepop,maxclus-onepop,maxclusenergy&
-         ,sum(chen)-maxclusenergy,acconn,cconn-acconn,atconn-acconn,tconn-((atconn-acconn)+cconn) 
-
-    !,clcount
-    !if(time>10000) write(6,*) 'output',time, real((normalisedsize)+(nprotein-clusterpop))/nprotein,real((normalisedsize)+ &
-    !(nprotein-clusterpop))
-    if(clustcount == 0)  write(82,*) time,clustcount, clusterpop,0.0,0.0,0.0,0,0,0,0,0,0,0,0
-    !end if
-
-    write(886,*) correlationone(:)
-    write(887,*) correlationcluster(:)
-
-    !write(6,*) 'RELIABLE CLUSTER COUNT',clustcount,time2-time1
-    call phase(content,maxclus,clnos,cb)
-    deallocate(cllist)
-    deallocate(clnos)
-    deallocate(tempcoord)
-    deallocate(histcl)
-  end subroutine clustercount2
 
   
 

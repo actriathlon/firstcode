@@ -238,7 +238,7 @@ open(88,file = 'movetagged.vtf',action='write')
      end if
      fail = .false.
 
-     if ((mod(time,outputrate*10) == 0) .and. (film .eqv. .true.) ) then
+     if ((mod(time,outputrate) == 0) .and. (film .eqv. .true.) ) then
         call dataout
      end if
 
@@ -292,6 +292,14 @@ open(88,file = 'movetagged.vtf',action='write')
      !write(6,*) 'sweep complete'
   end do
 
+  if(restart .eqv. .false.) then
+     backtime = timebase
+  else
+     backtime = timebase+lastruntime
+  end if
+
+
+
 93 if((film .eqv. .false.) .and. (scalinginfo .eqv. .false.)) call dataout
   write(6,*) 'deltax =',trackx, 'deltay =',tracky, 'deltaz =',trackz
   call CPU_TIME(finish)
@@ -325,6 +333,7 @@ open(88,file = 'movetagged.vtf',action='write')
      write(6,*) '***********^^^^^^^^^^^^^^^^^^^This simulation FAILED!^^^^^^^^^^***********'
   end if
   !write(6,*) 'end'
+
 contains
 
 
@@ -3839,12 +3848,12 @@ end do
        if (dzx > 1) dzx = -1
        if (dzx < -1) dzx = 1
 
-       if (dxx == -1) g1 = 0
-       if (dxx == 1) g2 = 0
-       if (dyx == -1) g3 = 0
-       if (dyx == 1) g4 = 0
-       if (dzx == -1) g5 =0
-       if (dzx == 1) g6 = 0
+       if (dxx == 1) g1 = 0
+       if (dxx == -1) g2 = 0
+       if (dyx == 1) g3 = 0
+       if (dyx == -1) g4 = 0
+       if (dzx == 1) g5 =0
+       if (dzx == -1) g6 = 0
 
 
        if((direc == g1) .and. (g1 == 1)) then
